@@ -153,7 +153,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         shaderCallback: (bounds) =>
                             StellarTheme.primaryGradient.createShader(bounds),
                         child: const Text(
-                          "STELLAR",
+                          "TeX",
                           style: TextStyle(
                             fontSize: 48,
                             fontWeight: FontWeight.bold,

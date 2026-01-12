@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
 import 'package:texting/screens/chat_screen.dart';
 import 'package:texting/screens/create_group_screen.dart';
+import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/screens/settings_screen.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
@@ -25,6 +26,29 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _checkProfileCompletion();
+  }
+
+  void _checkProfileCompletion() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        // Force profile setup if flag is false OR missing (legacy users)
+        if ((data['isProfileComplete'] ?? false) == false) {
+           // Small delay to ensure context is ready
+           Future.delayed(const Duration(milliseconds: 500), () {
+             if (mounted) {
+               Navigator.push(
+                 context, 
+                 MaterialPageRoute(builder: (_) => ProfileScreen(userId: user.uid, isSelf: true))
+               );
+             }
+           });
+        }
+      }
+    }
   }
 
   void signOut(BuildContext context) {
@@ -40,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           shaderCallback: (bounds) =>
               StellarTheme.primaryGradient.createShader(bounds),
           child: const Text(
-            "STELLAR",
+            "TeX",
             style: TextStyle(
               fontWeight: FontWeight.bold,
               letterSpacing: 1.5,
@@ -164,79 +188,118 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+
+
+  // Helper to build list item with StreamBuilder for specific chat data (unread count)
   Widget _buildUserListItem(DocumentSnapshot document, BuildContext context) {
     Map<String, dynamic> data = document.data()! as Map<String, dynamic>;
     String name = data['displayName'] ?? data['email'].split('@')[0];
-    
-    // Privacy Logic: If 'about' is hidden or generic? Actually user asked for "Online Status" to be hidden.
-    // 'about' text can be shown as subtitle.
-    String about = data['about'] ?? "Hey there! I am using Stellar.";
+    String about = data['about'] ?? "I am TeXtingg!!!!";
+    String otherUserId = data['uid'] ?? document.id;
+    String currentUserId = FirebaseAuth.instance.currentUser!.uid;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
-      ),
-      child: ListTile(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ChatScreen(
-                receiverUserEmail: data['email'],
-                receiverUserID: data['uid'] ?? document.id,
-                receiverName: name,
-                isGroup: false,
-              ),
-            ),
-          );
-        },
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Container(
-          width: 50,
-          height: 50,
+    // Construct Chat Room ID
+    List<String> ids = [currentUserId, otherUserId];
+    ids.sort();
+    String chatRoomId = ids.join("_");
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('chat_rooms').doc(chatRoomId).snapshots(),
+      builder: (context, chatSnapshot) {
+        int unreadCount = 0;
+        String lastMsg = about;
+        bool hasUnread = false;
+
+        if (chatSnapshot.hasData && chatSnapshot.data!.exists) {
+          final chatData = chatSnapshot.data!.data() as Map<String, dynamic>;
+          unreadCount = chatData['unreadCount_$currentUserId'] ?? 0;
+          if (chatData.containsKey('lastMessage')) {
+             lastMsg = chatData['lastMessage'];
+          }
+          hasUnread = unreadCount > 0;
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: StellarTheme.primaryGradient,
-            boxShadow: [
-              BoxShadow(
-                color: StellarTheme.primaryNeon.withOpacity(0.3),
-                blurRadius: 8,
-              ),
-            ],
+            color: Colors.white.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.05)),
           ),
-          child: Center(
-            child: Text(
-              name.isNotEmpty ? name[0].toUpperCase() : '?',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
+          child: ListTile(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ChatScreen(
+                    receiverUserEmail: data['email'],
+                    receiverUserID: otherUserId,
+                    receiverName: name,
+                    isGroup: false,
+                  ),
+                ),
+              );
+            },
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: StellarTheme.primaryGradient,
+                boxShadow: [
+                  BoxShadow(
+                    color: StellarTheme.primaryNeon.withOpacity(0.3),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                  ),
+                ),
               ),
             ),
+            title: Text(
+              name,
+              style: const TextStyle(
+                color: StellarTheme.textPrimary,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            subtitle: Text(
+              lastMsg,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: hasUnread ? Colors.white : StellarTheme.textSecondary,
+                fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
+                fontSize: 13,
+              ),
+            ),
+            trailing: hasUnread 
+                ? Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: StellarTheme.primaryNeon,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      unreadCount.toString(),
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ) 
+                : null,
           ),
-        ),
-        title: Text(
-          name,
-          style: const TextStyle(
-            color: StellarTheme.textPrimary,
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
-        ),
-        subtitle: Text(
-          about,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: StellarTheme.textSecondary,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    ).animate().fadeIn().slideX();
+        ).animate().fadeIn().slideX();
+      },
+    );
   }
 
   // --- 2. GROUPS LIST ---

@@ -8,6 +8,7 @@ class StellarTextField extends StatelessWidget {
   final Widget? prefixIcon;
   final Widget? suffixIcon;
   final String? Function(String?)? validator;
+  final int maxLines;
 
   const StellarTextField({
     super.key,
@@ -17,6 +18,7 @@ class StellarTextField extends StatelessWidget {
     this.prefixIcon,
     this.suffixIcon,
     this.validator,
+    this.maxLines = 1,
   });
 
   @override
@@ -41,6 +43,7 @@ class StellarTextField extends StatelessWidget {
         controller: controller,
         obscureText: obscureText,
         validator: validator,
+        maxLines: maxLines,
         style: const TextStyle(color: StellarTheme.textPrimary),
         decoration: InputDecoration(
           prefixIcon: prefixIcon,

@@ -19,7 +19,9 @@ class ChatService extends ChangeNotifier {
       'senderEmail': currentUserEmail,
       'receiverId': receiverId,
       'message': message,
+      'type': 'text',
       'timestamp': timestamp,
+      'isRead': false,
     };
 
     // construct chat room id from current user id and receiver id (sorted to ensure uniqueness)
@@ -34,7 +36,47 @@ class ChatService extends ChangeNotifier {
         .collection('messages')
         .add(newMessage);
         
-    // Update recent message for 1-on-1 if needed, but for now we focus on messages
+    // Update chat room metadata for unread counts
+    await _firestore.collection('chat_rooms').doc(chatRoomId).set({
+      'lastMessage': message,
+      'lastMessageTime': timestamp,
+      'users': ids,
+      'unreadCount_$receiverId': FieldValue.increment(1),
+    }, SetOptions(merge: true));
+  }
+  
+  // SEND SYSTEM MESSAGE (Broadcast name change etc)
+  Future<void> sendSystemMessage(String chatRoomIdOrGroupId, String message, {bool isGroup = false}) async {
+    final Timestamp timestamp = Timestamp.now();
+    Map<String, dynamic> sysMessage = {
+      'senderId': 'system',
+      'message': message,
+      'type': 'system',
+      'timestamp': timestamp,
+    };
+
+    if (isGroup) {
+      await _firestore
+          .collection('groups')
+          .doc(chatRoomIdOrGroupId)
+          .collection('messages')
+          .add(sysMessage);
+    } else {
+      await _firestore
+          .collection('chat_rooms')
+          .doc(chatRoomIdOrGroupId)
+          .collection('messages')
+          .add(sysMessage);
+    }
+  }
+  
+  // MARK MESSAGES AS READ
+  Future<void> markMessagesAsRead(String chatRoomId) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    // Reset unread count for this user
+    await _firestore.collection('chat_rooms').doc(chatRoomId).update({
+      'unreadCount_$currentUserId': 0,
+    });
   }
 
   // GET MESSAGES (1-on-1)
@@ -94,6 +136,7 @@ class ChatService extends ChangeNotifier {
       'senderEmail': currentUserEmail,
       'senderName': senderName,
       'message': message,
+      'type': 'text',
       'timestamp': timestamp,
     };
 
@@ -111,7 +154,35 @@ class ChatService extends ChangeNotifier {
         'senderName': senderName,
         'timestamp': timestamp,
       }
+    // Note: Group unread counts are more complex, skipping for now to keep it clean. 
+      // User can see recent message in list.
     });
+  }
+
+  // BROADCAST NAME CHANGE
+  Future<void> broadcastNameChange(String newName) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    
+    // 1. Notify in 1-on-1 chats
+    // Query chat_rooms where I am a user. 
+    // This is potentialy expensive if many chats, but for MVP it's okay.
+    // Better index: 'users' array-contains.
+    final chatQuery = await _firestore.collection('chat_rooms')
+        .where('users', arrayContains: currentUserId)
+        .get();
+
+    for (var doc in chatQuery.docs) {
+      await sendSystemMessage(doc.id, "User changed name to $newName");
+    }
+
+    // 2. Notify in Groups
+    final groupQuery = await _firestore.collection('groups')
+        .where('members', arrayContains: currentUserId)
+        .get();
+        
+    for (var doc in groupQuery.docs) {
+      await sendSystemMessage(doc.id, "User changed name to $newName", isGroup: true);
+    }
   }
 
   // GET GROUP MESSAGES

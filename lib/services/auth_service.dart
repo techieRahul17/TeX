@@ -79,8 +79,12 @@ class AuthService extends ChangeNotifier {
         'email': user.email,
         'displayName': user.displayName ?? user.email!.split('@')[0],
         'photoURL': user.photoURL,
-        'about': 'Hey there! I am using Stellar.',
+          'skills': [],
+        'hobbies': [],
+        'funFact': '',
+        'about': 'I am TeXtingg!!!!',
         'isOnlineHidden': false,
+        'isProfileComplete': false,
         'lastSeen': Timestamp.now(),
       });
     } else {
@@ -92,12 +96,30 @@ class AuthService extends ChangeNotifier {
   }
   
   // Update Profile
-  Future<void> updateProfile({String? about, bool? isOnlineHidden}) async {
+  Future<void> updateProfile({
+    String? name,
+    String? about,
+    List<String>? skills,
+    List<String>? hobbies,
+    String? funFact,
+    bool? isOnlineHidden,
+  }) async {
     Map<String, dynamic> data = {};
+    if (name != null) data['displayName'] = name;
     if (about != null) data['about'] = about;
+    if (skills != null) data['skills'] = skills;
+    if (hobbies != null) data['hobbies'] = hobbies;
+    if (funFact != null) data['funFact'] = funFact;
     if (isOnlineHidden != null) data['isOnlineHidden'] = isOnlineHidden;
     
     if (data.isNotEmpty && currentUser != null) {
+      if (name != null) {
+        // Update FirebaseAuth profile as well
+        await currentUser!.updateDisplayName(name);
+      }
+      // Whenever we update profile, we consider it complete if it wasn't
+      data['isProfileComplete'] = true;
+      
       await _firestore.collection('users').doc(currentUser!.uid).update(data);
       notifyListeners();
     }

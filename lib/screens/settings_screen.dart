@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
+import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:glassmorphism/glassmorphism.dart';
 
@@ -15,7 +16,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final TextEditingController _aboutController = TextEditingController();
+  // final TextEditingController _aboutController = TextEditingController(); // Moved to ProfileScreen
   bool _isOnlineHidden = false;
   bool _isLoading = false;
 
@@ -32,7 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
         setState(() {
-          _aboutController.text = data['about'] ?? "Hey there! I am using Stellar.";
+          // _aboutController.text = data['about'] ?? "I am TeXtingg!!!!";
           _isOnlineHidden = data['isOnlineHidden'] ?? false;
         });
       }
@@ -45,7 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     
     try {
       await authService.updateProfile(
-        about: _aboutController.text,
+        // about: _aboutController.text, // Managed in ProfileScreen
         isOnlineHidden: _isOnlineHidden,
       );
       if (mounted) {
@@ -163,45 +164,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 48),
 
                     // "About" Section
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        "ABOUT",
-                        style: TextStyle(
-                          color: StellarTheme.primaryNeon.withOpacity(0.8),
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.5,
+                    // "Go to Profile" Section
+                    GestureDetector(
+                      onTap: () {
+                         Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: user!.uid, isSelf: true)));
+                      },
+                      child: GlassmorphicContainer(
+                        width: double.infinity,
+                        height: 60,
+                        borderRadius: 16,
+                        blur: 20,
+                        alignment: Alignment.center,
+                        border: 1,
+                        linearGradient: StellarTheme.glassGradient,
+                        borderGradient: LinearGradient(
+                          colors: [
+                            Colors.white.withOpacity(0.2),
+                            Colors.white.withOpacity(0.05),
+                          ],
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    GlassmorphicContainer(
-                      width: double.infinity,
-                      height: 80,
-                      borderRadius: 16,
-                      blur: 20,
-                      alignment: Alignment.center,
-                      border: 1,
-                      linearGradient: StellarTheme.glassGradient,
-                      borderGradient: LinearGradient(
-                        colors: [
-                          Colors.white.withOpacity(0.2),
-                          Colors.white.withOpacity(0.05),
-                        ],
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: TextField(
-                          controller: _aboutController,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            hintText: "Tell us about yourself...",
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              Icon(PhosphorIcons.userCircle(), color: Colors.white),
+                              SizedBox(width: 12),
+                              Text("Edit Profile Details", style: TextStyle(color: Colors.white, fontSize: 16)),
+                              Spacer(),
+                              Icon(PhosphorIcons.caretRight(), color: Colors.white70),
+                            ],
                           ),
-                          maxLines: 2,
                         ),
                       ),
                     ),

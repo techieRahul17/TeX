@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:texting/config/theme.dart';
 import 'package:texting/services/chat_service.dart';
+import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/widgets/chat_bubble.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -38,7 +39,15 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     if (!widget.isGroup) {
       _checkReceiverPrivacy();
+      _markAsRead();
     }
+  }
+
+  void _markAsRead() {
+    List<String> ids = [_auth.currentUser!.uid, widget.receiverUserID];
+    ids.sort();
+    String chatRoomId = ids.join("_");
+    _chatService.markMessagesAsRead(chatRoomId);
   }
 
   void _checkReceiverPrivacy() async {
@@ -106,47 +115,58 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         title: Row(
           children: [
-            Container(
-              width: 35,
-              height: 35,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: widget.isGroup 
-                    ? const LinearGradient(colors: [Color(0xFF8B5CF6), StellarTheme.primaryNeon])
-                    : StellarTheme.primaryGradient,
-                boxShadow: [
-                  BoxShadow(color: StellarTheme.primaryNeon.withOpacity(0.4), blurRadius: 10)
-                ]
-              ),
-              child: Center(
-                child: widget.isGroup 
-                  ? Icon(PhosphorIcons.usersThree(), size: 18, color: Colors.white)
-                  : Text(
-                      displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                  ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            GestureDetector(
+              onTap: () {
+                if (!widget.isGroup) {
+                   Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: widget.receiverUserID)));
+                } else {
+                  // For groups, maybe show group info later
+                }
+              },
+              child: Row(
                 children: [
-                  Text(
-                    displayName,
-                    style: const TextStyle(fontSize: 16, color: Colors.white),
-                  ),
-                  if (!widget.isGroup && !_isReceiverOnlineHidden)
-                    const Text(
-                        "Online",
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: StellarTheme.primaryNeon, 
+                  Container(
+                    width: 35,
+                    height: 35,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: widget.isGroup 
+                          ? const LinearGradient(colors: [Color(0xFF8B5CF6), StellarTheme.primaryNeon])
+                          : StellarTheme.primaryGradient,
+                      boxShadow: [
+                        BoxShadow(color: StellarTheme.primaryNeon.withOpacity(0.4), blurRadius: 10)
+                      ]
+                    ),
+                    child: Center(
+                      child: widget.isGroup 
+                        ? Icon(PhosphorIcons.usersThree(), size: 18, color: Colors.white)
+                        : Text(
+                            displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                         ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        displayName,
+                        style: const TextStyle(fontSize: 16, color: Colors.white),
                       ),
+                      if (!widget.isGroup && !_isReceiverOnlineHidden)
+                        const Text(
+                            "Online", // TODO: Real status
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: StellarTheme.primaryNeon, 
+                            ),
+                          ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -238,6 +258,23 @@ class _ChatScreenState extends State<ChatScreen> {
     
     // For groups, we might want to show sender name above message if it's not me
     bool showSenderName = widget.isGroup && !isSender;
+
+    // Check for System Message
+    if (data['type'] == 'system') {
+      return Container(
+        alignment: Alignment.center,
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          data['message'],
+          style: const TextStyle(color: StellarTheme.textSecondary, fontSize: 11),
+        ),
+      );
+    }
 
     return Container(
       alignment: alignment,
