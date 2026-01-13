@@ -11,6 +11,9 @@ import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/screens/settings_screen.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
+import 'package:texting/screens/search_screen.dart';
+import 'package:texting/screens/requests_screen.dart';
+import 'package:texting/models/user_model.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -73,6 +76,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         ),
         actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
+            },
+            icon: Icon(PhosphorIcons.magnifyingGlass(), color: StellarTheme.textSecondary),
+          ),
+          Stack(
+            children: [
+              IconButton(
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const RequestsScreen()));
+                },
+                icon: Icon(PhosphorIcons.userPlus(), color: StellarTheme.textSecondary),
+              ),
+              // Optional: Add red dot if pending requests
+            ],
+          ),
           IconButton(
             onPressed: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
@@ -158,30 +178,42 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- 1. CHATS LIST (USERS) ---
+  // --- 1. CHATS LIST (FRIENDS ONLY) ---
   Widget _buildUserList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return const Center(child: Text("Error"));
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return Consumer<AuthService>(
+      builder: (context, authService, child) {
+        final currentUserModel = authService.currentUserModel;
+        if (currentUserModel == null) {
           return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
         }
-
-        final currentUser = FirebaseAuth.instance.currentUser;
         
-        final docs = snapshot.data!.docs.where((doc) {
-             Map<String, dynamic> data = doc.data()! as Map<String, dynamic>;
-             return currentUser != null && data['email'] != currentUser.email;
-        }).toList();
-
-        if (docs.isEmpty) return const Center(child: Text("No users found.", style: TextStyle(color: StellarTheme.textSecondary)));
+        if (currentUserModel.friends.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text("No friends yet.", style: TextStyle(color: StellarTheme.textSecondary)),
+                TextButton(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
+                  child: const Text("Find Friends", style: TextStyle(color: StellarTheme.primaryNeon)),
+                ),
+              ],
+            ),
+          );
+        }
 
         return ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
+          itemCount: currentUserModel.friends.length,
           itemBuilder: (context, index) {
-            return _buildUserListItem(docs[index], context);
+            final friendUid = currentUserModel.friends[index];
+            return FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance.collection('users').doc(friendUid).get(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const SizedBox(); // Loading or error placeholder
+                return _buildUserListItem(snapshot.data!, context);
+              },
+            );
           },
         );
       },

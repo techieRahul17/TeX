@@ -9,15 +9,18 @@ import 'package:texting/config/theme.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
 import 'package:texting/widgets/stellar_textfield.dart';
+import 'package:texting/models/user_model.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String userId;
   final bool isSelf;
+  final UserModel? userModel; // Optional: Pass model directly if available from search
 
   const ProfileScreen({
     super.key,
     required this.userId,
     this.isSelf = false,
+    this.userModel,
   });
 
   @override
@@ -29,6 +32,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = false;
 
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _aboutController = TextEditingController();
   final TextEditingController _funFactController = TextEditingController();
   final TextEditingController _skillController = TextEditingController();
@@ -37,6 +41,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   List<String> _skills = [];
   List<String> _hobbies = [];
   String? _originalName;
+  String? _originalUsername;
 
   @override
   void initState() {
@@ -55,6 +60,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _nameController.text = data['displayName'] ?? '';
         _originalName = data['displayName'];
+        _usernameController.text = data['username'] ?? '';
+        _originalUsername = data['username'];
         _aboutController.text = data['about'] ?? '';
         _funFactController.text = data['funFact'] ?? '';
         _skills = List<String>.from(data['skills'] ?? []);
@@ -92,6 +99,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (_originalName != null && _nameController.text != _originalName) {
         await chatService.broadcastNameChange(_nameController.text);
         _originalName = _nameController.text;
+      }
+
+      // Check for username change or set
+      if (_usernameController.text.isNotEmpty && _usernameController.text != _originalUsername) {
+        await authService.setUsername(_usernameController.text);
+        _originalUsername = _usernameController.text;
       }
 
       setState(() {
@@ -150,6 +163,64 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildFriendActionButton(AuthService authService) {
+    final currentUser = authService.currentUserModel;
+    if (currentUser == null) return const SizedBox();
+
+    final isFriend = currentUser.friends.contains(widget.userId);
+    final isSent = currentUser.friendRequestsSent.contains(widget.userId);
+    final isReceived = currentUser.friendRequestsReceived.contains(widget.userId);
+
+    if (isFriend) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.green.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: Colors.green),
+        ),
+        child: const Text("Friends", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+      );
+    } else if (isSent) {
+      return ElevatedButton(
+        onPressed: () => authService.cancelFriendRequest(widget.userId),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.grey.withOpacity(0.3),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        ),
+        child: const Text("Request Sent", style: TextStyle(color: Colors.white70)),
+      );
+    } else if (isReceived) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ElevatedButton(
+            onPressed: () => authService.acceptFriendRequest(widget.userId),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: StellarTheme.primaryNeon,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+            ),
+            child: const Text("Accept Request"),
+          ),
+          const SizedBox(width: 10),
+           // Optional Decline
+        ],
+      );
+    } else {
+      return ElevatedButton.icon(
+        onPressed: () => authService.sendFriendRequest(widget.userId),
+        icon: const Icon(Icons.person_add),
+        label: const Text("Add Friend"),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: StellarTheme.primaryNeon,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        ),
+      );
+    }
   }
 
   @override
@@ -230,16 +301,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                        ),
                      ),
                    ),
-                   const SizedBox(height: 24),
+
+                   const SizedBox(height: 16),
                    
-                   // Editable Name
-                   if (_isEditing)
-                     StellarTextField(controller: _nameController, hintText: "Display Name", obscureText: false)
-                   else
+                   // Friend Action Button (if not self)
+                   if (!widget.isSelf)
+                      Consumer<AuthService>(
+                        builder: (context, auth, _) => _buildFriendActionButton(auth),
+                      ),
+                   
+                   const SizedBox(height: 16),
+                   
+                   // Editable Name & Username
+                   if (_isEditing) ...[
+                     StellarTextField(controller: _nameController, hintText: "Display Name", obscureText: false),
+                     const SizedBox(height: 12),
+                     StellarTextField(controller: _usernameController, hintText: "Username (Unique)", obscureText: false),
+                   ] else ...[
                      Text(
                        _nameController.text,
                        style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
                      ),
+                     const SizedBox(height: 8),
+                     Text(
+                       "@${_usernameController.text.isNotEmpty ? _usernameController.text : 'no_username'}",
+                       style: const TextStyle(fontSize: 16, color: StellarTheme.primaryNeon, letterSpacing: 1.1),
+                     ),
+                   ],
                     
                     const SizedBox(height: 32),
                     

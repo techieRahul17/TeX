@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:texting/config/theme.dart';
 import 'package:texting/services/chat_service.dart';
+import 'package:texting/services/auth_service.dart';
+import 'package:provider/provider.dart';
 import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/widgets/chat_bubble.dart';
 
@@ -89,6 +91,23 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    print("Building ChatScreen"); // Use print for simple debug or remove
+    final authService = Provider.of<AuthService>(context);
+    final currentUserModel = authService.currentUserModel;
+
+    bool isFriend = false;
+    if (widget.isGroup) {
+      isFriend = true; // Always allow in groups for now
+    } else if (currentUserModel != null) {
+      isFriend = currentUserModel.friends.contains(widget.receiverUserID);
+    }
+    
+    // Debug check
+    if (!widget.isGroup && currentUserModel == null) {
+       // Need to fetch user model if null (edge case during hot reload or direct nav)
+       // But typically Home ensures it's loaded.
+    }
+
     String displayName = widget.receiverName.isNotEmpty 
         ? widget.receiverName 
         : widget.receiverUserEmail.split('@')[0];
@@ -204,11 +223,26 @@ class _ChatScreenState extends State<ChatScreen> {
                 Expanded(
                   child: _buildMessageList(),
                 ),
-                _buildMessageInput(),
+                isFriend 
+                    ? _buildMessageInput()
+                    : _buildRestrictionMessage(),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+  
+  Widget _buildRestrictionMessage() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      color: Colors.black54,
+      width: double.infinity,
+      child: const Text(
+        "You must be friends to chat with this user.",
+        textAlign: TextAlign.center,
+        style: TextStyle(color: Colors.white54),
       ),
     );
   }
