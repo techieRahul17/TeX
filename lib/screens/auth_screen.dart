@@ -201,6 +201,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                   PhosphorIcons.envelope(),
                                   color: StellarTheme.textSecondary,
                                 ),
+                                onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                               ),
                               const SizedBox(height: 16),
                               StellarTextField(
@@ -211,6 +212,13 @@ class _AuthScreenState extends State<AuthScreen> {
                                   PhosphorIcons.lock(),
                                   color: StellarTheme.textSecondary,
                                 ),
+                                onFieldSubmitted: (_) {
+                                  if (isLogin) {
+                                    _authenticate();
+                                  } else {
+                                    FocusScope.of(context).nextFocus();
+                                  }
+                                },
                               ),
                               if (!isLogin) ...[
                                 const SizedBox(height: 16),
@@ -222,6 +230,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                     PhosphorIcons.checkCircle(),
                                     color: StellarTheme.textSecondary,
                                   ),
+                                  onFieldSubmitted: (_) => _authenticate(),
                                 ),
                               ],
                               const SizedBox(height: 32),

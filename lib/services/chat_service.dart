@@ -95,32 +95,150 @@ class ChatService extends ChangeNotifier {
 
   // --- GROUP CHAT FEATURES ---
 
-  // CREATE GROUP
-  Future<void> createGroup(String groupName, List<String> memberIds) async {
+  // CHECK UNIQUE GROUP NAME
+  Future<bool> isGroupNameUnique(String groupName) async {
     final String currentUserId = _auth.currentUser!.uid;
-    List<String> allMembers = [...memberIds, currentUserId];
+    // Check if user is already a member of a group with this name
+    final query = await _firestore
+        .collection('groups')
+        .where('members', arrayContains: currentUserId)
+        .where('name', isEqualTo: groupName)
+        .get();
+        
+    return query.docs.isEmpty;
+  }
+
+  // CREATE GROUP (With Invites)
+  Future<void> createGroup(String groupName, String description, List<String> invitedUserIds) async {
+    final String currentUserId = _auth.currentUser!.uid;
     
-    // Create group document
+    // Check uniqueness again to be safe
+    if (!await isGroupNameUnique(groupName)) {
+      throw Exception("You already have a group with this name.");
+    }
+
     DocumentReference groupDoc = _firestore.collection('groups').doc();
     
     await groupDoc.set({
       'groupId': groupDoc.id,
       'name': groupName,
-      'members': allMembers,
-      'admin': currentUserId,
+      'description': description,
+      'members': [currentUserId],     // Creator is the only initial member
+      'pendingMembers': invitedUserIds, // Others are pending
+      'admin': currentUserId,         // Leader
+      'coAdmins': [],                 // Co-Admins list
+      'mutedMembers': [],
       'createdAt': Timestamp.now(),
-      'recentMessage': {}, // Empty initially
+      'recentMessage': {}, 
     });
+    
+    // Notify invited users via System Message (Optional, or just let them see the invite)
+    // Actually, create a system message so the chat isn't empty for the creator
+    await sendSystemMessage(groupDoc.id, "Group created. Invites sent.", isGroup: true);
   }
 
-  // GET GROUPS STREAM
+  // GET MY GROUPS STREAM (Accepted)
   Stream<QuerySnapshot> getGroupsStream() {
     final String currentUserId = _auth.currentUser!.uid;
     return _firestore
         .collection('groups')
         .where('members', arrayContains: currentUserId)
-        .orderBy('createdAt', descending: true) // Ideally order by recentMessage time
         .snapshots();
+  }
+
+  // GET GROUP INVITES STREAM
+  Stream<QuerySnapshot> getGroupInvitesStream() {
+    final String currentUserId = _auth.currentUser!.uid;
+    return _firestore
+        .collection('groups')
+        .where('pendingMembers', arrayContains: currentUserId)
+        .snapshots();
+  }
+
+  // ACCEPT INVITE
+  Future<void> acceptGroupInvite(String groupId) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    await _firestore.collection('groups').doc(groupId).update({
+      'pendingMembers': FieldValue.arrayRemove([currentUserId]),
+      'members': FieldValue.arrayUnion([currentUserId]),
+    });
+    await sendSystemMessage(groupId, "${_auth.currentUser!.displayName ?? 'User'} joined the group", isGroup: true);
+  }
+
+  // REJECT INVITE
+  Future<void> rejectGroupInvite(String groupId, String reason) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    final String myName = _auth.currentUser!.displayName ?? _auth.currentUser!.email!.split('@')[0];
+    
+    DocumentSnapshot groupDoc = await _firestore.collection('groups').doc(groupId).get();
+    String adminId = groupDoc['admin'];
+    String groupName = groupDoc['name'];
+
+    // Remove from pending
+    await _firestore.collection('groups').doc(groupId).update({
+      'pendingMembers': FieldValue.arrayRemove([currentUserId]),
+    });
+
+    // Send rejection reason to Admin (Leader) via 1-on-1 chat
+    String rejectionMsg = "I rejected to join this group '$groupName' because $reason";
+    await sendMessage(adminId, rejectionMsg);
+  }
+
+  // PROMOTE / DEMOTE CO-ADMIN
+  Future<void> toggleCoAdmin(String groupId, String memberId, bool makeCoAdmin) async {
+    if (makeCoAdmin) {
+      await _firestore.collection('groups').doc(groupId).update({
+        'coAdmins': FieldValue.arrayUnion([memberId]),
+      });
+      await sendSystemMessage(groupId, "Admin promoted a member to Co-Admin", isGroup: true);
+    } else {
+      await _firestore.collection('groups').doc(groupId).update({
+        'coAdmins': FieldValue.arrayRemove([memberId]),
+      });
+       await sendSystemMessage(groupId, "Co-Admin rights revoked", isGroup: true);
+    }
+  }
+
+  // UPDATE GROUP DETAILS (Admin/Co-Admin Only checks in UI, backend rule later)
+  Future<void> updateGroupDetails(String groupId, String name, String description) async {
+     await _firestore.collection('groups').doc(groupId).update({
+       'name': name,
+       'description': description,
+     });
+     await sendSystemMessage(groupId, "Group details updated", isGroup: true);
+  }
+
+  // ADD MEMBERS (Invite)
+  Future<void> addGroupMembers(String groupId, List<String> newMemberIds) async {
+    await _firestore.collection('groups').doc(groupId).update({
+      'pendingMembers': FieldValue.arrayUnion(newMemberIds),
+    });
+    // await sendSystemMessage(groupId, "${newMemberIds.length} new member(s) invited", isGroup: true);
+  }
+
+  // TOGGLE MUTE NOTIFICATIONS
+  Future<void> toggleMuteNotifications(String groupId, bool mute) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    if (mute) {
+      await _firestore.collection('groups').doc(groupId).update({
+        'mutedMembers': FieldValue.arrayUnion([currentUserId]),
+      });
+    } else {
+      await _firestore.collection('groups').doc(groupId).update({
+        'mutedMembers': FieldValue.arrayRemove([currentUserId]),
+      });
+    }
+  }
+
+  // LEAVE GROUP
+  Future<void> leaveGroup(String groupId) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    await _firestore.collection('groups').doc(groupId).update({
+      'members': FieldValue.arrayRemove([currentUserId]),
+    });
+    // Optional: If admin leaves, assign new admin? For now, keep simple (group might become headless or allow anyone).
+    // Or just simple leave notification
+    await sendSystemMessage(groupId, "${_auth.currentUser!.displayName ?? 'Use'} left the group", isGroup: true);
   }
 
   // SEND GROUP MESSAGE
@@ -154,8 +272,6 @@ class ChatService extends ChangeNotifier {
         'senderName': senderName,
         'timestamp': timestamp,
       }
-    // Note: Group unread counts are more complex, skipping for now to keep it clean. 
-      // User can see recent message in list.
     });
   }
 
@@ -164,9 +280,6 @@ class ChatService extends ChangeNotifier {
     final String currentUserId = _auth.currentUser!.uid;
     
     // 1. Notify in 1-on-1 chats
-    // Query chat_rooms where I am a user. 
-    // This is potentialy expensive if many chats, but for MVP it's okay.
-    // Better index: 'users' array-contains.
     final chatQuery = await _firestore.collection('chat_rooms')
         .where('users', arrayContains: currentUserId)
         .get();

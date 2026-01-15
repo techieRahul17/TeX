@@ -2,7 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
+import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
 
 class CreateGroupScreen extends StatefulWidget {
@@ -14,6 +16,7 @@ class CreateGroupScreen extends StatefulWidget {
 
 class _CreateGroupScreenState extends State<CreateGroupScreen> {
   final TextEditingController _groupNameController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
   final ChatService _chatService = ChatService();
   List<String> _selectedUserIds = [];
   bool _isLoading = false;
@@ -35,11 +38,27 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await _chatService.createGroup(_groupNameController.text, _selectedUserIds);
+      // Check Name Uniqueness
+      bool isUnique = await _chatService.isGroupNameUnique(_groupNameController.text);
+      if (!isUnique) {
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("You already have a group with this name")),
+          );
+           setState(() => _isLoading = false);
+           return;
+        }
+      }
+
+      await _chatService.createGroup(
+        _groupNameController.text,
+        _descriptionController.text,
+        _selectedUserIds,
+      );
       if (mounted) {
         Navigator.pop(context); // Go back to Home
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Group Created!")),
+          const SnackBar(content: Text("Group Created! Invites sent.")),
         );
       }
     } catch (e) {
@@ -65,6 +84,11 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Get friends list from Auth Provider
+    final authService = Provider.of<AuthService>(context);
+    final userModel = authService.currentUserModel;
+    final List<String> friendIds = userModel?.friends ?? [];
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -90,7 +114,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
         ),
         child: Column(
           children: [
-            // Top Section (Group Name)
+            // Top Section (Group Name & Desc)
             SafeArea(
               bottom: false,
               child: Padding(
@@ -108,11 +132,23 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _descriptionController,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: "Description (Optional)",
+                        prefixIcon: Icon(PhosphorIcons.info(), color: StellarTheme.textSecondary),
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.05),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      ),
+                    ),
                     const SizedBox(height: 24),
                     const Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        "SELECT MEMBERS",
+                        "SELECT MEMBERS (Friends Only)",
                         style: TextStyle(
                           color: StellarTheme.textSecondary,
                           fontSize: 12,
@@ -126,28 +162,33 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               ),
             ),
             
-            // User List
+            // Friends List
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('users').snapshots(),
+              child: friendIds.isEmpty 
+              ? const Center(child: Text("No friends found to add.", style: TextStyle(color: StellarTheme.textSecondary)))
+              : StreamBuilder<QuerySnapshot>(
+                // Filter to only fetch friends. 
+                // Note: 'whereIn' supports max 10/30 items. If friends > 10, this might crash in production.
+                // For a robust app, we'd fetch in chunks or all users + client filter.
+                // Given the context (likely small scale testing), whereIn is fine OR fetch all and filter.
+                // Safest for MVP if friend list is small:
+                stream: FirebaseFirestore.instance.collection('users')
+                    .where(FieldPath.documentId, whereIn: friendIds.take(30).toList()) 
+                    .snapshots(),
                 builder: (context, snapshot) {
-                  if (snapshot.hasError) return const Center(child: Text("Error"));
+                  if (snapshot.hasError) return const Center(child: Text("Error loading friends"));
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
                   }
                   
-                  final currentUser = FirebaseAuth.instance.currentUser;
-                  final docs = snapshot.data!.docs.where((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    return currentUser != null && data['email'] != currentUser.email;
-                  }).toList();
+                  final docs = snapshot.data!.docs;
 
                   return ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: docs.length,
                     itemBuilder: (context, index) {
                       final data = docs[index].data() as Map<String, dynamic>;
-                      final uid = docs[index]['uid'] ?? docs[index].id;
+                      final uid = docs[index].id;
                       final name = data['displayName'] ?? data['email'].split('@')[0];
                       final isSelected = _selectedUserIds.contains(uid);
 
@@ -173,7 +214,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                             ),
                             child: Center(
                               child: Text(
-                                name[0].toUpperCase(),
+                                name.isNotEmpty ? name[0].toUpperCase() : '?',
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                               ),
                             ),

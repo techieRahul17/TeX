@@ -8,6 +8,7 @@ import 'package:texting/services/auth_service.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/widgets/chat_bubble.dart';
+import 'package:texting/screens/group_info_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String receiverUserEmail;
@@ -134,12 +135,19 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         title: Row(
           children: [
+
+
+// ... (in class methods)
+
             GestureDetector(
               onTap: () {
                 if (!widget.isGroup) {
                    Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: widget.receiverUserID)));
                 } else {
-                  // For groups, maybe show group info later
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(
+                    groupId: widget.receiverUserID,
+                    groupName: displayName,
+                  )));
                 }
               },
               child: Row(
@@ -150,7 +158,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: widget.isGroup 
-                          ? const LinearGradient(colors: [Color(0xFF8B5CF6), StellarTheme.primaryNeon])
+                          ? const LinearGradient(colors: [Colors.black, StellarTheme.primaryNeon])
                           : StellarTheme.primaryGradient,
                       boxShadow: [
                         BoxShadow(color: StellarTheme.primaryNeon.withOpacity(0.4), blurRadius: 10)
@@ -368,6 +376,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       vertical: 12,
                     ),
                   ),
+                  onSubmitted: (_) => sendMessage(),
                 ),
               ),
             ),
