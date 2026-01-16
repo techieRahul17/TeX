@@ -164,7 +164,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        isLogin ? "Welcome Back" : "Create Account",
+                        isLogin ? "Vanakkam da Mappla!!!" : "Create Account",
                         style: const TextStyle(
                           color: StellarTheme.textSecondary,
                           fontSize: 18,
