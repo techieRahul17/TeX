@@ -92,6 +92,7 @@ class AuthService extends ChangeNotifier {
       
       return userCredential;
     } catch (e) {
+      debugPrint("Google Sign In Error: $e");
       throw Exception(e.toString());
     }
   }
