@@ -1,88 +1,68 @@
-# PingMe 🚀
+# TeX
 
-![PingMe Banner](https://via.placeholder.com/1200x400/000000/FF007F?text=PingMe+Chat+App)
+TeX is a modern, high-performance messaging application built with Flutter and Firebase. It features a sleek, dark-themed user interface and provides real-time communication capabilities with robust authentication.
 
-> **"Connect perfectly. Chat instantly. Experience Stellar."**
+## Features
 
-**PingMe** is a next-generation real-time messaging application built with **Flutter** and **Firebase**. Designed with a stunning **Black & Neon Pink** aesthetic, it offers a premium, glassmorphic user experience that feels alive.
+- **Real-time Messaging**: Instant message delivery using Cloud Firestore.
+- **Secure Authentication**: Robust user authentication via Google Sign-In and Email/Password, securely managed by Firebase Authentication.
+- **Cross-Platform Support**: optimized for Web, Android, and iOS.
+- **Modern UI/UX**: A visually striking dark theme ("Stellar Theme") with glassmorphism effects and smooth animations.
+- **User Profiles**: Customizable user profiles with username management and friend request systems.
+- **Responsive Design**: Adapts seamlessly to various screen sizes and devices.
 
-## ✨ Features
+## Technology Stack
 
-- **🎨 Stellar UI**: A deep black simplified interface with vibrant pink neon accents and glassmorphic elements.
-- **🔐 Secure Authentication**: Seamless login with **Google Sign-In** and Email/Password.
-- **💬 Real-Time Messaging**: Instant 1-on-1 chats powered by Firestore streams.
-- **👥 Group Chats**: Create groups, add friends, and chat simultaneously with live updates.
-- **🛡️ Privacy First**: Toggle your "Online Status" and control what others see.
-- **👤 Custom Profiles**: Set your "About" status and view stylized generative avatars.
-- **⚡ Super Fast**: Optimized for performance on Web, Android, and iOS.
-
-## 🛠️ Tech Stack
-
-- **Framework**: [Flutter](https://flutter.dev/) (3.x)
-- **Language**: Dart
-- **Backend Service**: [Firebase](https://firebase.google.com/)
-  - **Firestore**: Real-time NoSQL Database
-  - **Authentication**: Google & Email Providers
+- **Frontend**: Flutter (Dart)
+- **Backend**: Firebase (Firestore, Authentication, Storage)
 - **State Management**: Provider
-- **UI Libraries**: `glassmorphism`, `flutter_animate`, `phosphor_flutter`, `google_fonts`
+- **Animations**: Flutter Animate
+- **Google Sign-In**: Integration with detailed error handling and Web support.
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
-- [Flutter SDK](https://docs.flutter.dev/get-started/install) installed.
-- A Firebase Project with **Auth** and **Firestore** enabled.
+- Flutter SDK (Latest Stable)
+- Dart SDK
+- Firebase Project configured
 
 ### Installation
 
-1.  **Clone the Repository**
+1.  Clone the repository:
     ```bash
-    git clone https://github.com/techieRahul17/PingMe.git
-    cd PingMe
+    git clone https://github.com/techieRahul17/TeX.git
     ```
 
-2.  **Install Dependencies**
+2.  Navigate to the project directory:
+    ```bash
+    cd TeX
+    ```
+
+3.  Install dependencies:
     ```bash
     flutter pub get
     ```
 
-3.  **Firebase Configuration**
-    - Replace `lib/firebase_options.dart` with your project's generated file.
-    - **Web**: Update `web/index.html` with your Google Sign-In Client ID.
-      ```html
-      <meta name="google-signin-client_id" content="YOUR_CLIENT_ID.apps.googleusercontent.com">
-      ```
-    - **Android**: Ensure `google-services.json` is in `android/app/`.
-
-4.  **Run the App**
+4.  Run the application:
     ```bash
     flutter run
-    # For Chrome
-    flutter run -d chrome
     ```
 
-## 📸 Screenshots
+    *Note: For Google Sign-In on Web, ensure you run on the authorized port (e.g., port 5000):*
+    ```bash
+    flutter run -d chrome --web-port=5000
+    ```
+## Author
 
-| Login Screen | chat Screen | Group Chat | Settings |
-|:---:|:---:|:---:|:---:|
-| ![Login](https://via.placeholder.com/200x400/000000/FF007F?text=Login) | ![Home](https://via.placeholder.com/200x400/000000/FF007F?text=Home) | ![Chat](https://via.placeholder.com/200x400/000000/FF007F?text=Chat) | ![Settings](https://via.placeholder.com/200x400/000000/FF007F?text=Settings) |
-
-## 🤝 Contributing
-
-Contributions are welcome! Please fork the repository and submit a pull request for any enhancements.
-
-1.  Fork the Project
-2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4.  Push to the Branch (`git push origin feature/AmazingFeature`)
-5.  Open a Pull Request
-
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
+**Rahul V S**
+Email: [vsrahul2006@gmail.com]
+GitHub: [techieRahul17](https://github.com/techieRahul17)
 
 ---
 
-<p align="center">
-  Built with ❤️ by <a href="https://github.com/techieRahul17">Rahul V S</a>
-</p>
+## Designed and Developed by
+
+**Rahul V S**
+<br>
+&copy; 2026 TeX. All rights reserved.
