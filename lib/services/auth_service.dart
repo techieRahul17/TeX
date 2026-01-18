@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user_model.dart';
+import 'encryption_service.dart';
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -102,6 +103,11 @@ class AuthService extends ChangeNotifier {
     final userDocRef = _firestore.collection('users').doc(user.uid);
     final docSnap = await userDocRef.get();
     
+    // Initialize Encryption and get Public Key
+    final encryptionService = EncryptionService();
+    await encryptionService.init();
+    final String? publicKey = encryptionService.myPublicKey;
+
     if (!docSnap.exists) {
       // New user
       final newUser = UserModel(
@@ -118,17 +124,26 @@ class AuthService extends ChangeNotifier {
         isOnline: true,
         lastSeen: Timestamp.now(),
         isProfileComplete: false,
+        isReadReceiptsEnabled: true,
+        publicKey: publicKey,
       );
 
       await userDocRef.set(newUser.toMap());
       _currentUserModel = newUser;
     } else {
-      // Existing user, just update last seen and fetch model
+      // Existing user, just update last seen and ensure public key is set
+      // If public key is missing (old user), we update it now
       await userDocRef.update({
         'lastSeen': Timestamp.now(),
         'isOnline': true,
+        if (publicKey != null) 'publicKey': publicKey,
       });
       _currentUserModel = UserModel.fromMap(docSnap.data() as Map<String, dynamic>);
+      
+      // Update local model with key if it wasn't there
+      if (_currentUserModel?.publicKey == null && publicKey != null) {
+         _currentUserModel = _currentUserModel!.copyWith(publicKey: publicKey);
+      }
     }
     // notifyListeners(); // Stream handles this
   }
@@ -267,6 +282,7 @@ class AuthService extends ChangeNotifier {
     List<String>? hobbies,
     String? funFact,
     bool? isOnlineHidden,
+    bool? isReadReceiptsEnabled,
   }) async {
     Map<String, dynamic> data = {};
     if (name != null) data['displayName'] = name;
@@ -275,6 +291,7 @@ class AuthService extends ChangeNotifier {
     if (hobbies != null) data['hobbies'] = hobbies;
     if (funFact != null) data['funFact'] = funFact;
     if (isOnlineHidden != null) data['isOnlineHidden'] = isOnlineHidden;
+    if (isReadReceiptsEnabled != null) data['isReadReceiptsEnabled'] = isReadReceiptsEnabled;
     
     if (data.isNotEmpty && currentUser != null) {
       if (name != null) {

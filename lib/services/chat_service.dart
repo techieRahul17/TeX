@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'encryption_service.dart';
 
 class ChatService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -13,12 +14,31 @@ class ChatService extends ChangeNotifier {
     final String currentUserEmail = _auth.currentUser!.email.toString();
     final Timestamp timestamp = Timestamp.now();
 
+    String messageContent = message;
+
+    // Fetch receiver's Public Key for Encryption
+    try {
+      DocumentSnapshot receiverDoc = await _firestore.collection('users').doc(receiverId).get();
+      if (receiverDoc.exists) {
+        Map<String, dynamic> data = receiverDoc.data() as Map<String, dynamic>;
+        String? receiverPublicKey = data['publicKey'];
+        
+        if (receiverPublicKey != null) {
+          // Encrypt
+          messageContent = await EncryptionService().encryptMessage(message, receiverPublicKey);
+        }
+      }
+    } catch (e) {
+      debugPrint("Encryption missing or failed: $e");
+      // Fallback to cleartext if anything fails, to ensure message delivery
+    }
+
     // create a new message
     Map<String, dynamic> newMessage = {
       'senderId': currentUserId,
       'senderEmail': currentUserEmail,
       'receiverId': receiverId,
-      'message': message,
+      'message': messageContent,
       'type': 'text',
       'timestamp': timestamp,
       'isRead': false,
@@ -38,7 +58,7 @@ class ChatService extends ChangeNotifier {
         
     // Update chat room metadata for unread counts
     await _firestore.collection('chat_rooms').doc(chatRoomId).set({
-      'lastMessage': message,
+      'lastMessage': messageContent, // Store encrypted version in preview too
       'lastMessageTime': timestamp,
       'users': ids,
       'unreadCount_$receiverId': FieldValue.increment(1),
@@ -73,10 +93,48 @@ class ChatService extends ChangeNotifier {
   // MARK MESSAGES AS READ
   Future<void> markMessagesAsRead(String chatRoomId) async {
     final String currentUserId = _auth.currentUser!.uid;
-    // Reset unread count for this user
-    await _firestore.collection('chat_rooms').doc(chatRoomId).update({
+    // Reset unread count for this user, creating doc if missing (though unlikely to have unreads if missing)
+    await _firestore.collection('chat_rooms').doc(chatRoomId).set({
       'unreadCount_$currentUserId': 0,
-    });
+    }, SetOptions(merge: true));
+  }
+
+  // CLEAR CHAT HISTORY
+  Future<void> clearChat(String userId, String otherUserId) async {
+    List<String> ids = [userId, otherUserId];
+    ids.sort();
+    String chatRoomId = ids.join("_");
+
+    // 1. Get all messages
+    var collection = _firestore
+        .collection('chat_rooms')
+        .doc(chatRoomId)
+        .collection('messages');
+    
+    var snapshots = await collection.get();
+
+    // 2. Batch Delete (handled in chunks of 500 if needed, but simple loop for now is robust enough for small chats)
+    // For strictly reliable production code we'd use batch.
+    WriteBatch batch = _firestore.batch();
+    int count = 0;
+
+    for (var doc in snapshots.docs) {
+      batch.delete(doc.reference);
+      count++;
+      
+      if (count >= 490) { // Commit batch if getting full
+        await batch.commit();
+        batch = _firestore.batch();
+        count = 0;
+      }
+    }
+    await batch.commit();
+
+    // 3. Reset last message in Chat Room metadata
+    await _firestore.collection('chat_rooms').doc(chatRoomId).set({
+      'lastMessage': '',
+      'lastMessageTime': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   // GET MESSAGES (1-on-1)
@@ -108,13 +166,38 @@ class ChatService extends ChangeNotifier {
     return query.docs.isEmpty;
   }
 
-  // CREATE GROUP (With Invites)
+  // CREATE GROUP (With Invites and E2EE)
   Future<void> createGroup(String groupName, String description, List<String> invitedUserIds) async {
     final String currentUserId = _auth.currentUser!.uid;
     
     // Check uniqueness again to be safe
     if (!await isGroupNameUnique(groupName)) {
       throw Exception("You already have a group with this name.");
+    }
+
+    // 1. Generate Group Key
+    String groupKey = await EncryptionService().generateSymmetricKey();
+    Map<String, String> keysMap = {};
+
+    // 2. Encrypt Key for Creator (Me)
+    // Ensure keys are loaded
+    if (EncryptionService().myPublicKey == null) await EncryptionService().init();
+    String myPubKey = EncryptionService().myPublicKey!;
+    keysMap[currentUserId] = await EncryptionService().encryptKeyForMember(groupKey, myPubKey);
+
+    // 3. Encrypt Key for Invited Members
+    for (String uid in invitedUserIds) {
+      try {
+        DocumentSnapshot userDoc = await _firestore.collection('users').doc(uid).get();
+        if (userDoc.exists) {
+          String? pubKey = (userDoc.data() as Map<String, dynamic>)['publicKey'];
+          if (pubKey != null) {
+            keysMap[uid] = await EncryptionService().encryptKeyForMember(groupKey, pubKey);
+          }
+        }
+      } catch (e) {
+        debugPrint("Failed to encrypt group key for $uid: $e");
+      }
     }
 
     DocumentReference groupDoc = _firestore.collection('groups').doc();
@@ -128,12 +211,12 @@ class ChatService extends ChangeNotifier {
       'admin': currentUserId,         // Leader
       'coAdmins': [],                 // Co-Admins list
       'mutedMembers': [],
+      'keys': keysMap,                // Store encrypted keys
       'createdAt': Timestamp.now(),
       'recentMessage': {}, 
     });
     
-    // Notify invited users via System Message (Optional, or just let them see the invite)
-    // Actually, create a system message so the chat isn't empty for the creator
+    // Notify invited users via System Message
     await sendSystemMessage(groupDoc.id, "Group created. Invites sent.", isGroup: true);
   }
 
@@ -210,8 +293,43 @@ class ChatService extends ChangeNotifier {
 
   // ADD MEMBERS (Invite)
   Future<void> addGroupMembers(String groupId, List<String> newMemberIds) async {
+    final String currentUserId = _auth.currentUser!.uid;
+
+    // 1. Get Group Key (Decrypt mine)
+    DocumentSnapshot groupDoc = await _firestore.collection('groups').doc(groupId).get();
+    if (!groupDoc.exists) return;
+    
+    Map<String, dynamic> data = groupDoc.data() as Map<String, dynamic>;
+    Map<String, dynamic> keys = data['keys'] ?? {};
+    String? myEncryptedKey = keys[currentUserId];
+    
+    String? groupKey;
+    if (myEncryptedKey != null) {
+      groupKey = await EncryptionService().decryptKey(myEncryptedKey);
+    }
+
+    // 2. Encrypt for new members (if we have the key)
+    Map<String, String> newKeys = {};
+    if (groupKey != null && groupKey.isNotEmpty) {
+      for (String uid in newMemberIds) {
+         try {
+           DocumentSnapshot userDoc = await _firestore.collection('users').doc(uid).get();
+           if (userDoc.exists) {
+             String? pubKey = (userDoc.data() as Map<String, dynamic>)['publicKey'];
+             if (pubKey != null) {
+               newKeys['keys.$uid'] = await EncryptionService().encryptKeyForMember(groupKey, pubKey);
+             }
+           }
+         } catch (e) {
+           debugPrint("Error sharing key with $uid: $e");
+         }
+      }
+    }
+
+    // 3. Update Group
     await _firestore.collection('groups').doc(groupId).update({
       'pendingMembers': FieldValue.arrayUnion(newMemberIds),
+      ...newKeys // Add new keys to the map using dot notation
     });
     // await sendSystemMessage(groupId, "${newMemberIds.length} new member(s) invited", isGroup: true);
   }
@@ -249,11 +367,84 @@ class ChatService extends ChangeNotifier {
     String senderName = _auth.currentUser!.displayName ?? currentUserEmail.split('@')[0];
     final Timestamp timestamp = Timestamp.now();
 
+    String messageContent = message;
+
+    // 1. Get Group Key to Encrypt
+    try {
+      DocumentSnapshot groupDoc = await _firestore.collection('groups').doc(groupId).get();
+      if (groupDoc.exists) {
+        Map<String, dynamic> data = groupDoc.data() as Map<String, dynamic>;
+        Map<String, dynamic> keys = data['keys'] ?? {};
+        
+
+        // Check if this is an encrypted group (has keys)
+        if (keys.isEmpty) {
+          // --- AUTO-CORRECTION / LAZY MIGRATION ---
+          // If the group has no keys (legacy or failed creation), generate them NOW.
+          debugPrint("⚠️ Group $groupId has no keys. Auto-generating...");
+
+          String newGroupKey = await EncryptionService().generateSymmetricKey();
+          List<dynamic> memberIds = data['members'] ?? [];
+          Map<String, String> newKeysMap = {};
+
+          // Distribute to all members
+          for (var memberId in memberIds) {
+             try {
+               DocumentSnapshot memberDoc = await _firestore.collection('users').doc(memberId).get();
+               if (memberDoc.exists) {
+                 String? pubKey = (memberDoc.data() as Map<String, dynamic>)['publicKey'];
+                 if (pubKey != null && pubKey.isNotEmpty) {
+                    newKeysMap[memberId] = await EncryptionService().encryptKeyForMember(newGroupKey, pubKey);
+                 }
+               }
+             } catch (e) {
+               debugPrint("Failed to distribute key to $memberId: $e");
+             }
+          }
+
+          // Save keys to group
+          if (newKeysMap.isNotEmpty) {
+             await _firestore.collection('groups').doc(groupId).update({'keys': newKeysMap});
+             keys = newKeysMap; // Update local keys map to use immediately
+             debugPrint("✅ Auto-generated keys for ${newKeysMap.length} members.");
+          }
+        }
+        
+        if (keys.isNotEmpty) {
+           String? myEncryptedKey = keys[currentUserId];
+           if (myEncryptedKey != null) {
+              String groupKey = await EncryptionService().decryptKey(myEncryptedKey);
+              if (groupKey.isNotEmpty) {
+                 // Encrypt!
+                 messageContent = await EncryptionService().encryptSymmetric(message, groupKey);
+              } else {
+                 throw Exception("Failed to decrypt group key");
+              }
+           } else {
+              // I am a member but have no key? Try to self-heal specifically for ME if I am the sender?
+              // Only if I have my private key (which I do).
+              // Actually, if keys exist but NOT for me, I assume I'm not authorized or it's out of sync.
+              // For now, fail safe.
+              throw Exception("Encryption key missing for this user. Ask admin to re-add you.");
+           }
+        } else {
+           // Still empty after attempt? Then we must block or allow? 
+           // If we couldn't generate keys (e.g. no public keys found), we MUST NOT send plaintext.
+           throw Exception("Critical: Could not establish encryption for this group.");
+        }
+      }
+    } catch (e) {
+      debugPrint("Group Encryption Failed: $e");
+      // If we failed to encypt in an encrypted group, DO NOT SEND PLAINTEXT.
+      // We must rethrow to alert the UI.
+      rethrow;
+    }
+
     Map<String, dynamic> newMessage = {
       'senderId': currentUserId,
       'senderEmail': currentUserEmail,
       'senderName': senderName,
-      'message': message,
+      'message': messageContent, // Encrypted
       'type': 'text',
       'timestamp': timestamp,
     };
@@ -268,10 +459,37 @@ class ChatService extends ChangeNotifier {
     // Update group's recent message
     await _firestore.collection('groups').doc(groupId).update({
       'recentMessage': {
-        'message': message,
+        'message': messageContent, // Encrypted
         'senderName': senderName,
         'timestamp': timestamp,
       }
+    });
+
+    // Increment Unread Count for ALL members (except sender)
+    // We need to fetch members first to know who to update, or just update the map if we have it?
+    // Optimization: We can blindly update if we know IDs, but for now let's fetch current members from doc 
+    // to be safe (or pass it in). Re-fetching group doc is safest.
+    DocumentSnapshot freshGroupDoc = await _firestore.collection('groups').doc(groupId).get();
+    List<dynamic> members = freshGroupDoc['members'] ?? [];
+    
+    Map<String, dynamic> unreadUpdates = {};
+    for (var memberId in members) {
+      if (memberId != currentUserId) {
+        unreadUpdates['unreadCount_$memberId'] = FieldValue.increment(1);
+      }
+    }
+    
+    if (unreadUpdates.isNotEmpty) {
+      await _firestore.collection('groups').doc(groupId).update(unreadUpdates);
+    }
+  }
+
+  // MARK GROUP MESSAGES AS READ
+  Future<void> markGroupMessagesAsRead(String groupId) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    // debugPrint("Marking group $groupId as read for $currentUserId");
+    await _firestore.collection('groups').doc(groupId).update({
+      'unreadCount_$currentUserId': 0,
     });
   }
 
@@ -306,5 +524,43 @@ class ChatService extends ChangeNotifier {
         .collection('messages')
         .orderBy('timestamp', descending: false)
         .snapshots();
+  }
+  // MARK MESSAGE AS SEEN (Read Receipts)
+  Future<void> markMessageAsSeen(String chatRoomId, String messageId, {bool isGroup = false}) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    
+    // 1. Check Privacy Settings
+    final userDoc = await _firestore.collection('users').doc(currentUserId).get();
+    if (!userDoc.exists) return;
+    
+    // Default to true if field missing
+    bool sendReceipts = userDoc.data()?['isReadReceiptsEnabled'] ?? true;
+    if (!sendReceipts) return;
+
+    // 2. Update Status
+    if (isGroup) {
+       // Group: Add to 'seenBy' map
+       await _firestore
+          .collection('groups')
+          .doc(chatRoomId)
+          .collection('messages')
+          .doc(messageId)
+          .set({
+            'seenBy': {
+              currentUserId: FieldValue.serverTimestamp(),
+            }
+          }, SetOptions(merge: true));
+    } else {
+       // 1-on-1: Mark as read and add timestamp
+       await _firestore
+          .collection('chat_rooms')
+          .doc(chatRoomId)
+          .collection('messages')
+          .doc(messageId)
+          .update({
+            'isRead': true,
+            'readAt': FieldValue.serverTimestamp(),
+          });
+    }
   }
 }

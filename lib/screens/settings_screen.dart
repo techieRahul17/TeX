@@ -18,6 +18,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   // final TextEditingController _aboutController = TextEditingController(); // Moved to ProfileScreen
   bool _isOnlineHidden = false;
+  bool _isReadReceiptsEnabled = true;
   bool _isLoading = false;
 
   @override
@@ -35,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           // _aboutController.text = data['about'] ?? "I am TeXtingg!!!!";
           _isOnlineHidden = data['isOnlineHidden'] ?? false;
+          _isReadReceiptsEnabled = data['isReadReceiptsEnabled'] ?? true;
         });
       }
     }
@@ -48,6 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await authService.updateProfile(
         // about: _aboutController.text, // Managed in ProfileScreen
         isOnlineHidden: _isOnlineHidden,
+        isReadReceiptsEnabled: _isReadReceiptsEnabled,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -221,22 +224,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: Colors.white.withOpacity(0.1)),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Column( // changed to Column to stack items vertically if needed, or just keep them separate
                         children: [
-                          const Text(
-                            "Hide Online Status",
-                            style: TextStyle(color: Colors.white, fontSize: 16),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                "Hide Online Status",
+                                style: TextStyle(color: Colors.white, fontSize: 16),
+                              ),
+                              Switch(
+                                value: _isOnlineHidden,
+                                activeColor: StellarTheme.primaryNeon,
+                                activeTrackColor: StellarTheme.primaryNeon.withOpacity(0.3),
+                                inactiveThumbColor: Colors.grey,
+                                inactiveTrackColor: Colors.grey.withOpacity(0.3),
+                                onChanged: (val) {
+                                  setState(() => _isOnlineHidden = val);
+                                },
+                              ),
+                            ],
                           ),
-                          Switch(
-                            value: _isOnlineHidden,
-                            activeColor: StellarTheme.primaryNeon,
-                            activeTrackColor: StellarTheme.primaryNeon.withOpacity(0.3),
-                            inactiveThumbColor: Colors.grey,
-                            inactiveTrackColor: Colors.grey.withOpacity(0.3),
-                            onChanged: (val) {
-                              setState(() => _isOnlineHidden = val);
-                            },
+                          const Divider(color: Colors.white10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                "Send Read Receipts",
+                                style: TextStyle(color: Colors.white, fontSize: 16),
+                              ),
+                              Switch(
+                                value: _isReadReceiptsEnabled,
+                                activeColor: StellarTheme.primaryNeon,
+                                activeTrackColor: StellarTheme.primaryNeon.withOpacity(0.3),
+                                inactiveThumbColor: Colors.grey,
+                                inactiveTrackColor: Colors.grey.withOpacity(0.3),
+                                onChanged: (val) {
+                                  setState(() => _isReadReceiptsEnabled = val);
+                                },
+                              ),
+                            ],
                           ),
                         ],
                       ),

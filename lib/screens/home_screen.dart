@@ -13,6 +13,7 @@ import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
 import 'package:texting/screens/search_screen.dart';
 import 'package:texting/screens/requests_screen.dart';
+import 'package:texting/services/encryption_service.dart';
 import 'package:texting/models/user_model.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -305,15 +306,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 fontSize: 16,
               ),
             ),
-            subtitle: Text(
-              lastMsg,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: hasUnread ? Colors.white : StellarTheme.textSecondary,
-                fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
-                fontSize: 13,
-              ),
+            subtitle: FutureBuilder<String>(
+              future: EncryptionService().decryptMessage(lastMsg, data['publicKey'] ?? ""),
+              builder: (context, snapshot) {
+                 String text = snapshot.data ?? lastMsg;
+                 if (text.length > 30) text = "${text.substring(0, 30)}...";
+                 return Text(
+                  text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: hasUnread ? Colors.white : StellarTheme.textSecondary,
+                    fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 13,
+                  ),
+                );
+              }
             ),
             trailing: hasUnread 
                 ? Container(
@@ -513,6 +521,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     String subtitle = recentMsg.isNotEmpty 
         ? "${recentMsg['senderName']}: ${recentMsg['message']}" 
         : "No messages yet";
+    
+    // Unread Count Logic
+    String currentUserId = FirebaseAuth.instance.currentUser!.uid;
+    int unreadCount = data['unreadCount_$currentUserId'] ?? 0;
+    bool hasUnread = unreadCount > 0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -558,8 +571,54 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         ),
         title: Text(groupName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: StellarTheme.textSecondary)),
+        subtitle: FutureBuilder<String>(
+          future: _decryptGroupMessage(recentMsg, data['keys']),
+          builder: (context, snapshot) {
+            String text = snapshot.data ?? (recentMsg.isNotEmpty ? "..." : "No messages yet");
+              return Text(
+               text, 
+               maxLines: 1, 
+               overflow: TextOverflow.ellipsis, 
+               style: TextStyle(
+                 color: hasUnread ? Colors.white : StellarTheme.textSecondary,
+                 fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
+               )
+             );
+          }
+        ),
+        trailing: hasUnread 
+            ? Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: StellarTheme.primaryNeon,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  unreadCount.toString(),
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ) 
+            : null,
       ),
     ).animate().fadeIn().slideX();
+  }
+
+  Future<String> _decryptGroupMessage(Map<String, dynamic> msgData, Map<String, dynamic>? keys) async {
+      if (msgData.isEmpty) return "No messages yet";
+      String senderName = msgData['senderName'] ?? "User";
+      String content = msgData['message'] ?? "";
+      
+      if (keys == null) return "$senderName: $content"; // No keys, assume plain
+      
+      String? myEncryptedKey = keys[FirebaseAuth.instance.currentUser!.uid];
+      if (myEncryptedKey == null) return "$senderName: Encrypted";
+
+      try {
+        String groupKey = await EncryptionService().decryptKey(myEncryptedKey);
+        String decrypted = await EncryptionService().decryptSymmetric(content, groupKey);
+        return "$senderName: $decrypted";
+      } catch (e) {
+        return "$senderName: Encrypted";
+      }
   }
 }

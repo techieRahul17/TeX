@@ -14,6 +14,8 @@ class UserModel {
   final bool isOnline;
   final Timestamp lastSeen;
   final bool isProfileComplete;
+  final bool isReadReceiptsEnabled;
+  final String? publicKey;
 
   UserModel({
     required this.uid,
@@ -29,6 +31,8 @@ class UserModel {
     required this.isOnline,
     required this.lastSeen,
     required this.isProfileComplete,
+    required this.isReadReceiptsEnabled,
+    this.publicKey,
   });
 
   Map<String, dynamic> toMap() {
@@ -46,6 +50,8 @@ class UserModel {
       'isOnline': isOnline,
       'lastSeen': lastSeen,
       'isProfileComplete': isProfileComplete,
+      'isReadReceiptsEnabled': isReadReceiptsEnabled,
+      'publicKey': publicKey,
     };
   }
 
@@ -64,6 +70,8 @@ class UserModel {
       isOnline: map['isOnline'] ?? false,
       lastSeen: map['lastSeen'] ?? Timestamp.now(),
       isProfileComplete: map['isProfileComplete'] ?? false,
+      isReadReceiptsEnabled: map['isReadReceiptsEnabled'] ?? true, // Default true
+      publicKey: map['publicKey'],
     );
   }
 
@@ -81,6 +89,8 @@ class UserModel {
     bool? isOnline,
     Timestamp? lastSeen,
     bool? isProfileComplete,
+    bool? isReadReceiptsEnabled,
+    String? publicKey,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -96,6 +106,8 @@ class UserModel {
       isOnline: isOnline ?? this.isOnline,
       lastSeen: lastSeen ?? this.lastSeen,
       isProfileComplete: isProfileComplete ?? this.isProfileComplete,
+      isReadReceiptsEnabled: isReadReceiptsEnabled ?? this.isReadReceiptsEnabled,
+      publicKey: publicKey ?? this.publicKey,
     );
   }
 }
