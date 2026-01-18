@@ -153,7 +153,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         shaderCallback: (bounds) =>
                             StellarTheme.primaryGradient.createShader(bounds),
                         child: const Text(
-                          "STELLAR",
+                          "TeX",
                           style: TextStyle(
                             fontSize: 48,
                             fontWeight: FontWeight.bold,
@@ -164,7 +164,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        isLogin ? "Welcome Back" : "Create Account",
+                        isLogin ? "Vanakkam da Mappla!!!" : "Create Account",
                         style: const TextStyle(
                           color: StellarTheme.textSecondary,
                           fontSize: 18,
@@ -201,6 +201,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                   PhosphorIcons.envelope(),
                                   color: StellarTheme.textSecondary,
                                 ),
+                                onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                               ),
                               const SizedBox(height: 16),
                               StellarTextField(
@@ -211,6 +212,13 @@ class _AuthScreenState extends State<AuthScreen> {
                                   PhosphorIcons.lock(),
                                   color: StellarTheme.textSecondary,
                                 ),
+                                onFieldSubmitted: (_) {
+                                  if (isLogin) {
+                                    _authenticate();
+                                  } else {
+                                    FocusScope.of(context).nextFocus();
+                                  }
+                                },
                               ),
                               if (!isLogin) ...[
                                 const SizedBox(height: 16),
@@ -222,6 +230,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                     PhosphorIcons.checkCircle(),
                                     color: StellarTheme.textSecondary,
                                   ),
+                                  onFieldSubmitted: (_) => _authenticate(),
                                 ),
                               ],
                               const SizedBox(height: 32),

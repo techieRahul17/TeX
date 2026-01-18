@@ -7,9 +7,14 @@ import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
 import 'package:texting/screens/chat_screen.dart';
 import 'package:texting/screens/create_group_screen.dart';
+import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/screens/settings_screen.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
+import 'package:texting/screens/search_screen.dart';
+import 'package:texting/screens/requests_screen.dart';
+import 'package:texting/services/encryption_service.dart';
+import 'package:texting/models/user_model.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,6 +30,29 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _checkProfileCompletion();
+  }
+
+  void _checkProfileCompletion() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        // Force profile setup if flag is false OR missing (legacy users)
+        if ((data['isProfileComplete'] ?? false) == false) {
+           // Small delay to ensure context is ready
+           Future.delayed(const Duration(milliseconds: 500), () {
+             if (mounted) {
+               Navigator.push(
+                 context, 
+                 MaterialPageRoute(builder: (_) => ProfileScreen(userId: user.uid, isSelf: true))
+               );
+             }
+           });
+        }
+      }
+    }
   }
 
   void signOut(BuildContext context) {
@@ -40,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           shaderCallback: (bounds) =>
               StellarTheme.primaryGradient.createShader(bounds),
           child: const Text(
-            "STELLAR",
+            "TeX",
             style: TextStyle(
               fontWeight: FontWeight.bold,
               letterSpacing: 1.5,
@@ -49,6 +77,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         ),
         actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
+            },
+            icon: Icon(PhosphorIcons.magnifyingGlass(), color: StellarTheme.textSecondary),
+          ),
+          Stack(
+            children: [
+              IconButton(
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const RequestsScreen()));
+                },
+                icon: Icon(PhosphorIcons.userPlus(), color: StellarTheme.textSecondary),
+              ),
+              // Optional: Add red dot if pending requests
+            ],
+          ),
           IconButton(
             onPressed: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
@@ -134,43 +179,353 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- 1. CHATS LIST (USERS) ---
+  // --- 1. CHATS LIST (FRIENDS ONLY) ---
   Widget _buildUserList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return const Center(child: Text("Error"));
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return Consumer<AuthService>(
+      builder: (context, authService, child) {
+        final currentUserModel = authService.currentUserModel;
+        if (currentUserModel == null) {
           return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
         }
-
-        final currentUser = FirebaseAuth.instance.currentUser;
         
-        final docs = snapshot.data!.docs.where((doc) {
-             Map<String, dynamic> data = doc.data()! as Map<String, dynamic>;
-             return currentUser != null && data['email'] != currentUser.email;
-        }).toList();
-
-        if (docs.isEmpty) return const Center(child: Text("No users found.", style: TextStyle(color: StellarTheme.textSecondary)));
+        if (currentUserModel.friends.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text("No friends yet.", style: TextStyle(color: StellarTheme.textSecondary)),
+                TextButton(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
+                  child: const Text("Find Friends", style: TextStyle(color: StellarTheme.primaryNeon)),
+                ),
+              ],
+            ),
+          );
+        }
 
         return ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
+          itemCount: currentUserModel.friends.length,
           itemBuilder: (context, index) {
-            return _buildUserListItem(docs[index], context);
+            final friendUid = currentUserModel.friends[index];
+            return FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance.collection('users').doc(friendUid).get(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const SizedBox(); // Loading or error placeholder
+                return _buildUserListItem(snapshot.data!, context);
+              },
+            );
           },
         );
       },
     );
   }
 
+
+
+  // Helper to build list item with StreamBuilder for specific chat data (unread count)
   Widget _buildUserListItem(DocumentSnapshot document, BuildContext context) {
     Map<String, dynamic> data = document.data()! as Map<String, dynamic>;
     String name = data['displayName'] ?? data['email'].split('@')[0];
+    String about = data['about'] ?? "I am TeXtingg!!!!";
+    String otherUserId = data['uid'] ?? document.id;
+    String currentUserId = FirebaseAuth.instance.currentUser!.uid;
+
+    // Construct Chat Room ID
+    List<String> ids = [currentUserId, otherUserId];
+    ids.sort();
+    String chatRoomId = ids.join("_");
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('chat_rooms').doc(chatRoomId).snapshots(),
+      builder: (context, chatSnapshot) {
+        int unreadCount = 0;
+        String lastMsg = about;
+        bool hasUnread = false;
+
+        if (chatSnapshot.hasData && chatSnapshot.data!.exists) {
+          final chatData = chatSnapshot.data!.data() as Map<String, dynamic>;
+          unreadCount = chatData['unreadCount_$currentUserId'] ?? 0;
+          if (chatData.containsKey('lastMessage')) {
+             lastMsg = chatData['lastMessage'];
+          }
+          hasUnread = unreadCount > 0;
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.05)),
+          ),
+          child: ListTile(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ChatScreen(
+                    receiverUserEmail: data['email'],
+                    receiverUserID: otherUserId,
+                    receiverName: name,
+                    isGroup: false,
+                  ),
+                ),
+              );
+            },
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: StellarTheme.primaryGradient,
+                boxShadow: [
+                  BoxShadow(
+                    color: StellarTheme.primaryNeon.withOpacity(0.3),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                  ),
+                ),
+              ),
+            ),
+            title: Text(
+              name,
+              style: const TextStyle(
+                color: StellarTheme.textPrimary,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            subtitle: FutureBuilder<String>(
+              future: EncryptionService().decryptMessage(lastMsg, data['publicKey'] ?? ""),
+              builder: (context, snapshot) {
+                 String text = snapshot.data ?? lastMsg;
+                 if (text.length > 30) text = "${text.substring(0, 30)}...";
+                 return Text(
+                  text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: hasUnread ? Colors.white : StellarTheme.textSecondary,
+                    fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 13,
+                  ),
+                );
+              }
+            ),
+            trailing: hasUnread 
+                ? Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: StellarTheme.primaryNeon,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      unreadCount.toString(),
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ) 
+                : null,
+          ),
+        ).animate().fadeIn().slideX();
+      },
+    );
+  }
+
+  // --- 2. GROUPS LIST (with Invitations) ---
+  Widget _buildGroupList() {
+    final ChatService chatService = ChatService();
     
-    // Privacy Logic: If 'about' is hidden or generic? Actually user asked for "Online Status" to be hidden.
-    // 'about' text can be shown as subtitle.
-    String about = data['about'] ?? "Hey there! I am using Stellar.";
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // --- INVITATIONS SECTION ---
+          StreamBuilder<QuerySnapshot>(
+            stream: chatService.getGroupInvitesStream(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox.shrink();
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4),
+                    child: Text(
+                      "INVITATIONS",
+                      style: TextStyle(color: StellarTheme.primaryNeon, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                    ),
+                  ),
+                  ...snapshot.data!.docs.map((doc) {
+                      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+                      return _buildInvitationCard(doc.id, data, chatService);
+                  }).toList(),
+                  const SizedBox(height: 20),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4),
+                    child: Text(
+                      "MY GROUPS",
+                      style: TextStyle(color: StellarTheme.textSecondary, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+
+          // --- ACTIVE GROUPS SECTION ---
+          StreamBuilder<QuerySnapshot>(
+            stream: chatService.getGroupsStream(),
+            builder: (context, snapshot) {
+               if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.white)));
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
+              }
+
+              final docs = snapshot.data!.docs;
+              
+              // Sort by createdAt descending (newest first)
+              docs.sort((a, b) {
+                final aData = a.data() as Map<String, dynamic>;
+                final bData = b.data() as Map<String, dynamic>;
+                final Timestamp? tA = aData['createdAt'] as Timestamp?;
+                final Timestamp? tB = bData['createdAt'] as Timestamp?;
+                if (tA == null) return 1; 
+                if (tB == null) return -1;
+                return tB.compareTo(tA);
+              });
+
+              if (docs.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(height: 50),
+                      Icon(PhosphorIcons.usersThree(), size: 48, color: StellarTheme.textSecondary.withOpacity(0.5)),
+                      const SizedBox(height: 16),
+                      const Text("No active groups.", style: TextStyle(color: StellarTheme.textSecondary)),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () {
+                           Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
+                        }, 
+                        child: const Text("Create One", style: TextStyle(color: StellarTheme.primaryNeon))
+                      )
+                    ],
+                  ),
+                );
+              }
+
+              return Column(
+                children: docs.map((doc) => _buildGroupCard(doc, context)).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInvitationCard(String groupId, Map<String, dynamic> data, ChatService chatService) {
+      String groupName = data['name'] ?? "Group";
+      String description = data['description'] ?? "";
+      // Ideally show 'Created by...' but we only have ID. For now just show invites.
+
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: StellarTheme.primaryNeon.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: StellarTheme.primaryNeon.withOpacity(0.3)),
+        ),
+        child: ListTile(
+          leading: Container(
+             width: 50, height: 50,
+             decoration: const BoxDecoration(
+               shape: BoxShape.circle,
+               // Updated gradient: Pink and Black
+               gradient: LinearGradient(colors: [Colors.black, StellarTheme.primaryNeon]),
+             ),
+             child: Icon(PhosphorIcons.usersThree(), color: Colors.white),
+          ),
+          title: Text(groupName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          subtitle: Text(description.isNotEmpty ? description : "Invited you to join", style: const TextStyle(color: Colors.white70)),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: Icon(PhosphorIcons.x(), color: Colors.red),
+                onPressed: () => _rejectInvite(context, groupId, chatService),
+              ),
+              IconButton(
+                icon: Icon(PhosphorIcons.check(), color: Colors.green),
+                onPressed: () => chatService.acceptGroupInvite(groupId),
+              ),
+            ],
+          ),
+        ),
+      );
+  }
+
+  void _rejectInvite(BuildContext context, String groupId, ChatService chatService) {
+     final reasonController = TextEditingController();
+     showDialog(
+       context: context,
+       builder: (ctx) => AlertDialog(
+         backgroundColor: const Color(0xFF1E1E1E),
+         title: const Text("Reject Invitation", style: TextStyle(color: Colors.white)),
+         content: Column(
+           mainAxisSize: MainAxisSize.min,
+           children: [
+             const Text("Please define a reason for rejection:", style: TextStyle(color: Colors.white70)),
+             const SizedBox(height: 10),
+             TextField(
+               controller: reasonController,
+               style: const TextStyle(color: Colors.white),
+               decoration: const InputDecoration(
+                 hintText: "Reason (e.g. Not interested)",
+                 hintStyle: TextStyle(color: Colors.white30),
+               ),
+             ),
+           ],
+         ),
+         actions: [
+           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+           TextButton(
+             onPressed: () {
+                chatService.rejectGroupInvite(groupId, reasonController.text);
+                Navigator.pop(ctx);
+             },
+             child: const Text("Reject", style: TextStyle(color: Colors.red)),
+           ),
+         ],
+       ),
+     );
+  }
+
+  Widget _buildGroupCard(DocumentSnapshot doc, BuildContext context) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    String groupName = data['name'] ?? "Group";
+    Map<String, dynamic> recentMsg = data['recentMessage'] ?? {};
+    String subtitle = recentMsg.isNotEmpty 
+        ? "${recentMsg['senderName']}: ${recentMsg['message']}" 
+        : "No messages yet";
+    
+    // Unread Count Logic
+    String currentUserId = FirebaseAuth.instance.currentUser!.uid;
+    int unreadCount = data['unreadCount_$currentUserId'] ?? 0;
+    bool hasUnread = unreadCount > 0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -181,154 +536,89 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
       child: ListTile(
         onTap: () {
-          Navigator.push(
+            Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => ChatScreen(
-                receiverUserEmail: data['email'],
-                receiverUserID: data['uid'] ?? document.id,
-                receiverName: name,
-                isGroup: false,
+                receiverUserEmail: "", // Not needed for group
+                receiverUserID: doc.id, // Group ID
+                receiverName: groupName,
+                isGroup: true,
               ),
             ),
           );
         },
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: Container(
           width: 50,
           height: 50,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: StellarTheme.primaryGradient,
+            // Updated gradient: Pink and Black Glow (Simulated with Dark + Pink)
+            gradient: const LinearGradient(
+              colors: [Colors.black, StellarTheme.primaryNeon], 
+              begin: Alignment.topLeft, 
+              end: Alignment.bottomRight
+            ),
             boxShadow: [
               BoxShadow(
-                color: StellarTheme.primaryNeon.withOpacity(0.3),
-                blurRadius: 8,
+                color: StellarTheme.primaryNeon.withOpacity(0.4),
+                blurRadius: 10,
               ),
             ],
           ),
           child: Center(
-            child: Text(
-              name.isNotEmpty ? name[0].toUpperCase() : '?',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
-            ),
+            child: Icon(PhosphorIcons.usersThree(), color: Colors.white, size: 24),
           ),
         ),
-        title: Text(
-          name,
-          style: const TextStyle(
-            color: StellarTheme.textPrimary,
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
+        title: Text(groupName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        subtitle: FutureBuilder<String>(
+          future: _decryptGroupMessage(recentMsg, data['keys']),
+          builder: (context, snapshot) {
+            String text = snapshot.data ?? (recentMsg.isNotEmpty ? "..." : "No messages yet");
+              return Text(
+               text, 
+               maxLines: 1, 
+               overflow: TextOverflow.ellipsis, 
+               style: TextStyle(
+                 color: hasUnread ? Colors.white : StellarTheme.textSecondary,
+                 fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
+               )
+             );
+          }
         ),
-        subtitle: Text(
-          about,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: StellarTheme.textSecondary,
-            fontSize: 13,
-          ),
-        ),
+        trailing: hasUnread 
+            ? Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: StellarTheme.primaryNeon,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  unreadCount.toString(),
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ) 
+            : null,
       ),
     ).animate().fadeIn().slideX();
   }
 
-  // --- 2. GROUPS LIST ---
-  Widget _buildGroupList() {
-    final ChatService chatService = ChatService();
-    return StreamBuilder<QuerySnapshot>(
-      stream: chatService.getGroupsStream(),
-      builder: (context, snapshot) {
-         if (snapshot.hasError) return const Center(child: Text("Error"));
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
-        }
+  Future<String> _decryptGroupMessage(Map<String, dynamic> msgData, Map<String, dynamic>? keys) async {
+      if (msgData.isEmpty) return "No messages yet";
+      String senderName = msgData['senderName'] ?? "User";
+      String content = msgData['message'] ?? "";
+      
+      if (keys == null) return "$senderName: $content"; // No keys, assume plain
+      
+      String? myEncryptedKey = keys[FirebaseAuth.instance.currentUser!.uid];
+      if (myEncryptedKey == null) return "$senderName: Encrypted";
 
-        final docs = snapshot.data!.docs;
-
-        if (docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(PhosphorIcons.usersThree(), size: 48, color: StellarTheme.textSecondary),
-                const SizedBox(height: 16),
-                const Text("No Groups Yet", style: TextStyle(color: StellarTheme.textSecondary)),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () {
-                     Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
-                  }, 
-                  child: const Text("Create One", style: TextStyle(color: StellarTheme.primaryNeon))
-                )
-              ],
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
-          itemBuilder: (context, index) {
-            Map<String, dynamic> data = docs[index].data() as Map<String, dynamic>;
-            String groupName = data['name'] ?? "Group";
-            Map<String, dynamic> recentMsg = data['recentMessage'] ?? {};
-            String subtitle = recentMsg.isNotEmpty 
-                ? "${recentMsg['senderName']}: ${recentMsg['message']}" 
-                : "No messages yet";
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.03),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withOpacity(0.05)),
-              ),
-              child: ListTile(
-                onTap: () {
-                   Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ChatScreen(
-                        receiverUserEmail: "", // Not needed for group
-                        receiverUserID: docs[index].id, // Group ID
-                        receiverName: groupName,
-                        isGroup: true,
-                      ),
-                    ),
-                  );
-                },
-                leading: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    // Different gradient for groups (Pink -> Purple/Dark)
-                    gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), StellarTheme.primaryNeon]),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.purple.withOpacity(0.3),
-                        blurRadius: 8,
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Icon(PhosphorIcons.usersThree(), color: Colors.white, size: 24),
-                  ),
-                ),
-                title: Text(groupName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: StellarTheme.textSecondary)),
-              ),
-            ).animate().fadeIn().slideX();
-          },
-        );
-      },
-    );
+      try {
+        String groupKey = await EncryptionService().decryptKey(myEncryptedKey);
+        String decrypted = await EncryptionService().decryptSymmetric(content, groupKey);
+        return "$senderName: $decrypted";
+      } catch (e) {
+        return "$senderName: Encrypted";
+      }
   }
 }

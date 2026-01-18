@@ -31,7 +31,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Stellar Chat',
+      title: 'TeX',
       theme: StellarTheme.darkTheme,
       home: const AuthWrapper(),
     );

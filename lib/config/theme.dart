@@ -9,6 +9,7 @@ class StellarTheme {
   static const Color surface = Color(0xFF121212); // Dark Grey
   static const Color textPrimary = Color(0xFFFFFFFF); // White
   static const Color textSecondary = Color(0xFFB0B0B0); // Light Grey
+  static const Color cardColor = Color(0xFF1E1E1E); // Approx Dark Grey for cards
   
   // Gradients
   static const LinearGradient primaryGradient = LinearGradient(
