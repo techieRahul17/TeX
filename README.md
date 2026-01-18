@@ -1,5 +1,6 @@
 # TeX
 
+
 TeX is a modern, high-performance messaging application built with Flutter and Firebase. It features a sleek, dark-themed user interface and provides real-time communication capabilities with robust authentication.
 
 ## Features
