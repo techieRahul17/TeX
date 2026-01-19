@@ -8,6 +8,9 @@ import 'package:texting/services/auth_service.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/widgets/chat_bubble.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:share_plus/share_plus.dart';
 import 'package:texting/screens/group_info_screen.dart';
 import '../services/encryption_service.dart';
 
@@ -260,7 +263,11 @@ class _ChatScreenState extends State<ChatScreen> {
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, color: Colors.white),
               onSelected: (value) async {
-                if (value == 'clear_chat') {
+                if (value == 'export_chat') {
+                  _handleExportChat();
+                } else if (value == 'unfollow') {
+                  _handleUnfollow();
+                } else if (value == 'clear_chat') {
                   final confirm = await showDialog<bool>(
                     context: context,
                     builder: (ctx) => AlertDialog(
@@ -295,6 +302,22 @@ class _ChatScreenState extends State<ChatScreen> {
               },
               itemBuilder: (BuildContext context) {
                 return [
+                  if (widget.isGroup) ...[
+                    const PopupMenuItem<String>(
+                      value: 'export_chat',
+                      child: Text("Export Chat"),
+                    ),
+                  ] else ...[
+                     if (isFriend)
+                      const PopupMenuItem<String>(
+                        value: 'unfollow',
+                        child: Text("Unfollow", style: TextStyle(color: Colors.redAccent)),
+                      ),
+                    const PopupMenuItem<String>(
+                      value: 'export_chat',
+                      child: Text("Export Chat"),
+                    ),
+                  ],
                   const PopupMenuItem<String>(
                     value: 'clear_chat',
                     child: Text("Clear Chat"),
@@ -700,5 +723,136 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       },
     );
+  }
+
+  // EXPORT CHAT
+  Future<void> _handleExportChat() async {
+    try {
+      // 1. Show Loading
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Preparing chat export..."), duration: Duration(seconds: 1)),
+      );
+
+      // 2. Fetch All Messages
+      QuerySnapshot snapshot;
+      if (widget.isGroup) {
+         snapshot = await _chatService.getGroupMessages(widget.receiverUserID).first;
+      } else {
+         snapshot = await _chatService.getMessages(widget.receiverUserID, _auth.currentUser!.uid).first;
+      }
+
+      StringBuffer buffer = StringBuffer();
+      buffer.writeln("Chat Export - ${widget.receiverName.isNotEmpty ? widget.receiverName : 'Chat'}");
+      buffer.writeln("Exported on: ${DateTime.now().toString()}");
+      buffer.writeln("--------------------------------------------------\n");
+
+      // 3. Process Messages
+      for (var doc in snapshot.docs) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        
+        Timestamp? ts = data['timestamp'];
+        String timeStr = ts != null ? ts.toDate().toString().split('.')[0] : "Unknown Time"; // Removing millis
+        
+        String senderName = data['senderName'] ?? (data['senderId'] == _auth.currentUser!.uid ? "Me" : "Other");
+        String messageContent = data['message'];
+
+        // Decrypt
+        String decryptedMessage = "...";
+        if (data['type'] == 'system') {
+           decryptedMessage = "[SYSTEM] $messageContent";
+        } else {
+           if (widget.isGroup) {
+             decryptedMessage = await _decryptGroupMessage(messageContent);
+           } else {
+             // For export, we try to decrypt as Me (sender) or Receiver? 
+             // We are the current user, so we decrypt using our context.
+             // If we sent it or received it, _decryptMessage handles it if keys are loaded.
+             // Note: _decryptMessage relies on _receiverPublicKey which might not be set if we are offline or something, 
+             // but usually it is fetched in initState.
+             // Wait, _decryptMessage uses _receiverPublicKey to decrypt? 
+             // EncryptionService().decryptMessage(content, publicKey) -> actually it uses MY private key and THEIR public key (ECDH).
+             // If I am sender, I need Receiver's Public Key.
+             // If I am receiver, I need Sender's Public Key.
+             
+             // The logic in _decryptMessage:
+             // return await EncryptionService().decryptMessage(content, _receiverPublicKey!);
+             // This assumes 1-on-1 chat always uses the OTHER person's public key + MY private key.
+             // This holds true for X25519 shared secret derivation.
+             bool isSender = data['senderId'] == _auth.currentUser!.uid;
+             decryptedMessage = await _decryptMessage(messageContent, isSender);
+           }
+        }
+        
+      buffer.writeln("[$timeStr] $senderName: $decryptedMessage");
+      }
+
+      // 4. Create XFile from Data (Cross-platform safe)
+      // sanitize filename
+      String safeName = widget.receiverName.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
+      if (safeName.isEmpty) safeName = "chat_export";
+      
+      final Uint8List bytes = utf8.encode(buffer.toString());
+      final XFile xFile = XFile.fromData(
+        bytes,
+        mimeType: 'text/plain',
+        name: '${safeName}_export.txt',
+      );
+
+      // 5. Share
+      // Note: On Web, shareXFiles might trigger a download if sharing is not supported by the browser, 
+      // or open the native share sheet checking availability.
+      await Share.shareXFiles([xFile], text: 'Here is the chat export for $safeName.');
+
+    } catch (e) {
+      debugPrint("Export failed: $e");
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Export failed: $e"), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
+  // UNFOLLOW
+  Future<void> _handleUnfollow() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StellarTheme.cardColor,
+        title: const Text("Unfollow User?", style: TextStyle(color: Colors.white)),
+        content: Text(
+          "Are you sure you want to unfollow ${widget.receiverName}? You won't be able to message them until you are friends again.",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Unfollow", style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await Provider.of<AuthService>(context, listen: false).removeFriend(widget.receiverUserID);
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text("Unfollowed successfully")),
+           );
+           // Toggle state will update via stream and `isFriend` check in build()
+        }
+      } catch (e) {
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text("Failed to unfollow: $e"), backgroundColor: Colors.redAccent),
+           );
+         }
+      }
+    }
   }
 }
