@@ -3,8 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:texting/config/theme.dart';
+import 'package:texting/config/wallpapers.dart';
 import 'package:texting/services/chat_service.dart';
 import 'package:texting/services/auth_service.dart';
+import 'package:texting/widgets/pattern_painter.dart';
+import 'package:texting/widgets/wallpaper_selector.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/widgets/chat_bubble.dart';
@@ -177,6 +180,17 @@ class _ChatScreenState extends State<ChatScreen> {
         ? widget.receiverName 
         : widget.receiverUserEmail.split('@')[0];
 
+    // Determine Pattern/Wallpaper
+    String chatId = widget.receiverUserID;
+     if (!widget.isGroup) {
+        List<String> ids = [_auth.currentUser!.uid, widget.receiverUserID];
+        ids.sort();
+        chatId = ids.join("_");
+     }
+     
+    String? wallpaperId = currentUserModel?.chatWallpapers[chatId];
+    WallpaperOption wallpaper = Wallpapers.getById(wallpaperId ?? '');
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -267,6 +281,29 @@ class _ChatScreenState extends State<ChatScreen> {
                   _handleExportChat();
                 } else if (value == 'unfollow') {
                   _handleUnfollow();
+                } else if (value == 'change_wallpaper') {
+                   // Calculate Chat ID properly to fetch current
+                   String chatId = widget.receiverUserID; // For group
+                   if (!widget.isGroup) {
+                      List<String> ids = [_auth.currentUser!.uid, widget.receiverUserID];
+                      ids.sort();
+                      chatId = ids.join("_");
+                   }
+                   
+                   String? currentWallpaperId = currentUserModel?.chatWallpapers[chatId];
+
+                   showModalBottomSheet(
+                     context: context,
+                     backgroundColor: Colors.transparent,
+                     isScrollControlled: true,
+                     builder: (context) => WallpaperSelector(
+                       currentWallpaperId: currentWallpaperId,
+                       onSelect: (option) {
+                         _chatService.updateChatWallpaper(chatId, option.id);
+                         Navigator.pop(context);
+                       },
+                     ),
+                   );
                 } else if (value == 'clear_chat') {
                   final confirm = await showDialog<bool>(
                     context: context,
@@ -304,6 +341,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 return [
                   if (widget.isGroup) ...[
                     const PopupMenuItem<String>(
+                      value: 'change_wallpaper',
+                      child: Text("Change Wallpaper"),
+                    ),
+                    const PopupMenuItem<String>(
                       value: 'export_chat',
                       child: Text("Export Chat"),
                     ),
@@ -313,6 +354,10 @@ class _ChatScreenState extends State<ChatScreen> {
                         value: 'unfollow',
                         child: Text("Unfollow", style: TextStyle(color: Colors.redAccent)),
                       ),
+                    const PopupMenuItem<String>(
+                        value: 'change_wallpaper',
+                        child: Text("Change Wallpaper"),
+                    ),
                     const PopupMenuItem<String>(
                       value: 'export_chat',
                       child: Text("Export Chat"),
@@ -334,32 +379,38 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Stack(
           children: [
             // Background Radial Gradient
-            Positioned(
-              top: MediaQuery.of(context).size.height * 0.2,
-              right: -100,
-              child: Container(
-                width: 400,
-                height: 400,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: StellarTheme.primaryNeon.withOpacity(0.1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: StellarTheme.primaryNeon.withOpacity(0.15),
-                      blurRadius: 150,
-                      spreadRadius: 20,
+            // Dynamic Wallpaper Background
+            // Dynamic Wallpaper Background
+            Stack(
+              fit: StackFit.expand,
+              children: [
+                // Base Gradient
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: wallpaper.colors,
+                      begin: wallpaper.begin,
+                      end: wallpaper.end,
+                      stops: wallpaper.stops,
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                // Pattern Layer
+                CustomPaint(
+                  painter: PatternPainter(
+                     pattern: wallpaper.pattern,
+                     color: wallpaper.accentColor.withOpacity(0.1), 
+                  ),
+                ),
+              ],
             ),
             Column(
               children: [
                 Expanded(
-                  child: _buildMessageList(),
+                  child: _buildMessageList(wallpaper),
                 ),
                 isFriend 
-                    ? _buildMessageInput()
+                    ? _buildMessageInput(wallpaper)
                     : _buildRestrictionMessage(),
               ],
             ),
@@ -383,7 +434,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // BUILD MESSAGE LIST
-  Widget _buildMessageList() {
+  Widget _buildMessageList(WallpaperOption wallpaper) {
     Stream<QuerySnapshot> stream;
     if (widget.isGroup) {
       stream = _chatService.getGroupMessages(widget.receiverUserID);
@@ -411,7 +462,7 @@ class _ChatScreenState extends State<ChatScreen> {
           controller: _scrollController,
           padding: const EdgeInsets.only(top: 100, bottom: 20),
           children: snapshot.data!.docs
-              .map((doc) => _buildMessageItem(doc))
+              .map((doc) => _buildMessageItem(doc, wallpaper))
               .toList(),
         );
       },
@@ -419,7 +470,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // BUILD MESSAGE ITEM
-  Widget _buildMessageItem(DocumentSnapshot document) {
+  Widget _buildMessageItem(DocumentSnapshot document, WallpaperOption wallpaper) {
     Map<String, dynamic> data = document.data() as Map<String, dynamic>;
 
     bool isSender = data['senderId'] == _auth.currentUser!.uid;
@@ -516,6 +567,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ChatBubble(
                       message: messageText,
                       isSender: isSender,
+                      color: wallpaper.bubbleColor,
                     ),
                     // 1-on-1 Read Status
                     if (!widget.isGroup && isSender)
@@ -568,7 +620,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // BUILD MESSAGE INPUT
-  Widget _buildMessageInput() {
+  Widget _buildMessageInput(WallpaperOption wallpaper) {
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
@@ -603,6 +655,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       vertical: 12,
                     ),
                   ),
+                  cursorColor: wallpaper.accentColor,
                   onSubmitted: (_) => sendMessage(),
                 ),
               ),
@@ -610,11 +663,14 @@ class _ChatScreenState extends State<ChatScreen> {
             const SizedBox(width: 12),
             Container(
               decoration: BoxDecoration(
-                gradient: StellarTheme.primaryGradient,
+                gradient: LinearGradient(
+                   colors: [wallpaper.accentColor, wallpaper.accentColor.withOpacity(0.8)],
+                   begin: Alignment.bottomLeft, end: Alignment.topRight,
+                ),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: StellarTheme.primaryNeon.withOpacity(0.4),
+                    color: wallpaper.accentColor.withOpacity(0.4),
                     blurRadius: 10,
                   )
                 ],

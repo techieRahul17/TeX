@@ -16,6 +16,7 @@ class UserModel {
   final bool isProfileComplete;
   final bool isReadReceiptsEnabled;
   final String? publicKey;
+  final Map<String, String> chatWallpapers;
 
   UserModel({
     required this.uid,
@@ -33,6 +34,7 @@ class UserModel {
     required this.isProfileComplete,
     required this.isReadReceiptsEnabled,
     this.publicKey,
+    this.chatWallpapers = const {},
   });
 
   Map<String, dynamic> toMap() {
@@ -52,6 +54,7 @@ class UserModel {
       'isProfileComplete': isProfileComplete,
       'isReadReceiptsEnabled': isReadReceiptsEnabled,
       'publicKey': publicKey,
+      'chatWallpapers': chatWallpapers,
     };
   }
 
@@ -72,6 +75,7 @@ class UserModel {
       isProfileComplete: map['isProfileComplete'] ?? false,
       isReadReceiptsEnabled: map['isReadReceiptsEnabled'] ?? true, // Default true
       publicKey: map['publicKey'],
+      chatWallpapers: Map<String, String>.from(map['chatWallpapers'] ?? {}),
     );
   }
 
@@ -108,6 +112,7 @@ class UserModel {
       isProfileComplete: isProfileComplete ?? this.isProfileComplete,
       isReadReceiptsEnabled: isReadReceiptsEnabled ?? this.isReadReceiptsEnabled,
       publicKey: publicKey ?? this.publicKey,
+      chatWallpapers: chatWallpapers ?? this.chatWallpapers,
     );
   }
 }
