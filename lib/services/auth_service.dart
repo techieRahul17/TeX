@@ -283,6 +283,7 @@ class AuthService extends ChangeNotifier {
     String? funFact,
     bool? isOnlineHidden,
     bool? isReadReceiptsEnabled,
+    String? globalWallpaperId,
   }) async {
     Map<String, dynamic> data = {};
     if (name != null) data['displayName'] = name;
@@ -292,6 +293,7 @@ class AuthService extends ChangeNotifier {
     if (funFact != null) data['funFact'] = funFact;
     if (isOnlineHidden != null) data['isOnlineHidden'] = isOnlineHidden;
     if (isReadReceiptsEnabled != null) data['isReadReceiptsEnabled'] = isReadReceiptsEnabled;
+    if (globalWallpaperId != null) data['globalWallpaperId'] = globalWallpaperId;
     
     if (data.isNotEmpty && currentUser != null) {
       if (name != null) {

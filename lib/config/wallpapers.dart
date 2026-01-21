@@ -39,6 +39,16 @@ class WallpaperOption {
 
 class Wallpapers {
   static const List<WallpaperOption> options = [
+    // 0. Crimson Eclipse (Default Red/Black Theme)
+    WallpaperOption(
+      id: 'crimson_eclipse',
+      name: 'Crimson Eclipse',
+      colors: [Color(0xFF000000), Color(0xFF100000)], // Pure Black to Deep Red-Black
+      accentColor: Color(0xFFFF1744), // Vibrant Red
+      bubbleColor: Color(0xFFD50000), // Darker Red
+      pattern: WallpaperPattern.geometry,
+    ),
+
     // 1. Electric Noir (Professional Blue)
     WallpaperOption(
       id: 'electric_noir',
@@ -103,7 +113,7 @@ class Wallpapers {
   static WallpaperOption getById(String id) {
     return options.firstWhere(
       (w) => w.id == id,
-      orElse: () => options[0],
+      orElse: () => options[0], // Defaults to Crimson Eclipse
     );
   }
 }
