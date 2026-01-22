@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
+import 'package:texting/config/wallpapers.dart';
 import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:glassmorphism/glassmorphism.dart';
@@ -19,6 +20,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // final TextEditingController _aboutController = TextEditingController(); // Moved to ProfileScreen
   bool _isOnlineHidden = false;
   bool _isReadReceiptsEnabled = true;
+  String _selectedWallpaperId = 'crimson_eclipse';
   bool _isLoading = false;
 
   @override
@@ -37,6 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // _aboutController.text = data['about'] ?? "I am TeXtingg!!!!";
           _isOnlineHidden = data['isOnlineHidden'] ?? false;
           _isReadReceiptsEnabled = data['isReadReceiptsEnabled'] ?? true;
+          _selectedWallpaperId = data['globalWallpaperId'] ?? 'crimson_eclipse';
         });
       }
     }
@@ -51,6 +54,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // about: _aboutController.text, // Managed in ProfileScreen
         isOnlineHidden: _isOnlineHidden,
         isReadReceiptsEnabled: _isReadReceiptsEnabled,
+        globalWallpaperId: _selectedWallpaperId,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -72,6 +76,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+    final theme = Theme.of(context);
+    
     final String initial = user?.displayName != null && user!.displayName!.isNotEmpty
         ? user.displayName![0].toUpperCase()
         : (user?.email?[0].toUpperCase() ?? '?');
@@ -88,8 +94,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          color: StellarTheme.background,
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
         ),
         child: Stack(
           children: [
@@ -102,10 +108,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 height: 250,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: StellarTheme.primaryNeon.withOpacity(0.2),
+                  color: theme.primaryColor.withOpacity(0.2),
                   boxShadow: [
                     BoxShadow(
-                      color: StellarTheme.primaryNeon.withOpacity(0.2),
+                      color: theme.primaryColor.withOpacity(0.2),
                       blurRadius: 100,
                       spreadRadius: 50,
                     ),
@@ -127,10 +133,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         height: 120,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          gradient: StellarTheme.primaryGradient,
+                          color: theme.primaryColor,
+                          gradient: LinearGradient(
+                            colors: [theme.primaryColor, theme.colorScheme.secondary],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
                           boxShadow: [
                             BoxShadow(
-                              color: StellarTheme.primaryNeon.withOpacity(0.4),
+                              color: theme.primaryColor.withOpacity(0.4),
                               blurRadius: 20,
                               spreadRadius: 5,
                             )
@@ -159,8 +170,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     Text(
                       user?.email ?? "",
-                      style: const TextStyle(
-                        color: StellarTheme.textSecondary,
+                      style: TextStyle(
+                        color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7) ?? Colors.grey,
                         fontSize: 14,
                       ),
                     ),
@@ -191,13 +202,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Row(
                             children: [
                               Icon(PhosphorIcons.userCircle(), color: Colors.white),
-                              SizedBox(width: 12),
-                              Text("Edit Profile Details", style: TextStyle(color: Colors.white, fontSize: 16)),
-                              Spacer(),
+                              const SizedBox(width: 12),
+                              const Text("Edit Profile Details", style: TextStyle(color: Colors.white, fontSize: 16)),
+                              const Spacer(),
                               Icon(PhosphorIcons.caretRight(), color: Colors.white70),
                             ],
                           ),
                         ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 32),
+                    
+                    // Appearance Section
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        "APPEARANCE",
+                         style: TextStyle(
+                          color: theme.primaryColor.withOpacity(0.8),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 80,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: Wallpapers.options.length,
+                        itemBuilder: (context, index) {
+                          final option = Wallpapers.options[index];
+                          final isSelected = _selectedWallpaperId == option.id;
+                          
+                          return GestureDetector(
+                            onTap: () {
+                              setState(() => _selectedWallpaperId = option.id);
+                            },
+                            child: Container(
+                              width: 60,
+                              margin: const EdgeInsets.only(right: 12),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: option.colors.first,
+                                border: Border.all(
+                                  color: isSelected ? theme.primaryColor : Colors.white.withOpacity(0.2),
+                                  width: isSelected ? 3 : 1,
+                                ),
+                                boxShadow: isSelected ? [
+                                  BoxShadow(
+                                    color: theme.primaryColor.withOpacity(0.5),
+                                    blurRadius: 10,
+                                  )
+                                ] : [],
+                              ),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: LinearGradient(
+                                    colors: option.colors,
+                                    begin: option.begin,
+                                    end: option.end,
+                                  ),
+                                ),
+                                child: isSelected 
+                                  ? Icon(PhosphorIcons.check(), color: option.accentColor, size: 20)
+                                  : null,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     
@@ -209,7 +285,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Text(
                         "PRIVACY",
                          style: TextStyle(
-                          color: StellarTheme.primaryNeon.withOpacity(0.8),
+                          color: theme.primaryColor.withOpacity(0.8),
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           letterSpacing: 1.5,
@@ -224,7 +300,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: Colors.white.withOpacity(0.1)),
                       ),
-                      child: Column( // changed to Column to stack items vertically if needed, or just keep them separate
+                      child: Column(
                         children: [
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -235,8 +311,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               Switch(
                                 value: _isOnlineHidden,
-                                activeColor: StellarTheme.primaryNeon,
-                                activeTrackColor: StellarTheme.primaryNeon.withOpacity(0.3),
+                                activeColor: theme.primaryColor,
+                                activeTrackColor: theme.primaryColor.withOpacity(0.3),
                                 inactiveThumbColor: Colors.grey,
                                 inactiveTrackColor: Colors.grey.withOpacity(0.3),
                                 onChanged: (val) {
@@ -255,8 +331,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               Switch(
                                 value: _isReadReceiptsEnabled,
-                                activeColor: StellarTheme.primaryNeon,
-                                activeTrackColor: StellarTheme.primaryNeon.withOpacity(0.3),
+                                activeColor: theme.primaryColor,
+                                activeTrackColor: theme.primaryColor.withOpacity(0.3),
                                 inactiveThumbColor: Colors.grey,
                                 inactiveTrackColor: Colors.grey.withOpacity(0.3),
                                 onChanged: (val) {
@@ -287,7 +363,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           child: Ink(
                             decoration: BoxDecoration(
-                              gradient: StellarTheme.primaryGradient,
+                              gradient: LinearGradient(
+                                colors: [theme.primaryColor, theme.colorScheme.secondary],
+                                begin: Alignment.bottomLeft,
+                                end: Alignment.topRight,
+                              ),
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Container(

@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
+import 'package:texting/config/wallpapers.dart';
 import 'package:texting/firebase_options.dart';
 import 'package:texting/screens/auth_screen.dart';
 import 'package:texting/screens/home_screen.dart';
@@ -29,11 +30,21 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'TeX',
-      theme: StellarTheme.darkTheme,
-      home: const AuthWrapper(),
+    return Consumer<AuthService>(
+      builder: (context, authService, _) {
+        final user = authService.currentUserModel;
+        
+        // Determine Theme based on Global Wallpaper
+        String? globalWallpaperId = user?.globalWallpaperId; // Can be null
+        WallpaperOption wallpaper = Wallpapers.getById(globalWallpaperId ?? 'crimson_eclipse'); // Default to Red
+        
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'TeX',
+          theme: StellarTheme.createTheme(wallpaper),
+          home: const AuthWrapper(),
+        );
+      },
     );
   }
 }
@@ -51,10 +62,10 @@ class AuthWrapper extends StatelessWidget {
           final user = snapshot.data;
           return user == null ? const AuthScreen() : const HomeScreen();
         }
-        return const Scaffold(
+        return Scaffold(
           body: Center(
             child: CircularProgressIndicator(
-              color: StellarTheme.primaryNeon,
+              color: Theme.of(context).primaryColor,
             ),
           ),
         );

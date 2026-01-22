@@ -3,13 +3,24 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:texting/config/theme.dart';
+import 'package:texting/config/wallpapers.dart';
 import 'package:texting/services/chat_service.dart';
 import 'package:texting/services/auth_service.dart';
+import 'package:texting/widgets/pattern_painter.dart';
+import 'package:texting/widgets/wallpaper_selector.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/widgets/chat_bubble.dart';
+import 'dart:convert';
+import 'dart:typed_data'; 
+import 'package:share_plus/share_plus.dart';
 import 'package:texting/screens/group_info_screen.dart';
 import '../services/encryption_service.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart' as emoji; 
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:giphy_picker/giphy_picker.dart'; 
+// import 'dart:io'; // Removed for Web compatibility
+import 'package:flutter/foundation.dart'; // For defaultTargetPlatform and kIsWeb
 
 class ChatScreen extends StatefulWidget {
   final String receiverUserEmail;
@@ -35,6 +46,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ScrollController _scrollController = ScrollController();
   
+  
   // Privacy State (1-on-1 only)
   bool _isReceiverOnlineHidden = false;
   String? _receiverPublicKey;
@@ -43,9 +55,21 @@ class _ChatScreenState extends State<ChatScreen> {
   // Group State
   String? _groupKey;
 
+  // Emoji & GIF State
+  bool _isEmojiVisible = false;
+  final FocusNode _focusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
+    _focusNode.addListener(() {
+      if (_focusNode.hasFocus) {
+        setState(() {
+          _isEmojiVisible = false;
+        });
+      }
+    });
+
     if (!widget.isGroup) {
       _checkReceiverPrivacy();
       _markAsRead();
@@ -53,6 +77,54 @@ class _ChatScreenState extends State<ChatScreen> {
     } else {
       _loadGroupKey();
     }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onEmojiSelected(emoji.Category? category, emoji.Emoji em) {
+      _messageController.text = _messageController.text + em.emoji;
+  }
+
+  void _onBackspacePressed() {
+    _messageController
+      ..text = _messageController.text.characters.skipLast(1).toString()
+      ..selection = TextSelection.fromPosition(
+          TextPosition(offset: _messageController.text.length));
+  }
+
+  Future<void> _pickGif() async {
+     try {
+       // Using a public placeholder key for demo purposes if the specific one fails
+       // But keeping the previous one with better error handling.
+       final gif = await GiphyPicker.pickGif(
+          context: context,
+          apiKey: 'fwM59k41b072c1c6e1be85311855f751', 
+          showPreviewPage: false,
+       );
+
+       if (gif != null) {
+          final url = gif.images.fixedHeight?.url ?? gif.images.original?.url;
+          if (url != null) {
+             if (widget.isGroup) {
+               await _chatService.sendGroupMessage(widget.receiverUserID, url);
+             } else {
+               await _chatService.sendMessage(widget.receiverUserID, url);
+             }
+             _scrollToBottom();
+          }
+       }
+     } catch (e) {
+       ScaffoldMessenger.of(context).showSnackBar(
+         SnackBar(
+            content: Text("Giphy Error: ${e.toString().contains('401') ? 'Invalid Key (Quota Exceeded)' : e.toString()}"),
+            backgroundColor: Colors.redAccent,
+         )
+       );
+     }
   }
 
   Future<void> _loadGroupKey() async {
@@ -151,6 +223,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+
+
   @override
   Widget build(BuildContext context) {
     // print("Building ChatScreen"); // Use print for simple debug or remove
@@ -174,173 +248,300 @@ class _ChatScreenState extends State<ChatScreen> {
         ? widget.receiverName 
         : widget.receiverUserEmail.split('@')[0];
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent, 
-        elevation: 0,
-        flexibleSpace: Container(
-         decoration: BoxDecoration(
-           color: StellarTheme.background.withOpacity(0.8),
-           border: Border(
-             bottom: BorderSide(
-               color: Colors.white.withOpacity(0.05),
-               width: 1
-             )
-           )
-         ),
-        ),
-        leading: IconButton(
-          icon: Icon(PhosphorIcons.arrowLeft(), color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Row(
-          children: [
-            GestureDetector(
-              onTap: () {
-                if (!widget.isGroup) {
-                   Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: widget.receiverUserID)));
-                } else {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(
-                    groupId: widget.receiverUserID,
-                    groupName: displayName,
-                  )));
-                }
-              },
-              child: Row(
-                children: [
-                  Container(
-                    width: 35,
-                    height: 35,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: widget.isGroup 
-                          ? const LinearGradient(colors: [Colors.black, StellarTheme.primaryNeon])
-                          : StellarTheme.primaryGradient,
-                      boxShadow: [
-                        BoxShadow(color: StellarTheme.primaryNeon.withOpacity(0.4), blurRadius: 10)
-                      ]
-                    ),
-                    child: Center(
-                      child: widget.isGroup 
-                        ? Icon(PhosphorIcons.usersThree(), size: 18, color: Colors.white)
-                        : Text(
-                            displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                        ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayName,
-                        style: const TextStyle(fontSize: 16, color: Colors.white),
-                      ),
-                      if (!widget.isGroup && !_isReceiverOnlineHidden)
-                        const Text(
-                            "Online", // TODO: Real status
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: StellarTheme.primaryNeon, 
-                            ),
-                          ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-          actions: [
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.white),
-              onSelected: (value) async {
-                if (value == 'clear_chat') {
-                  final confirm = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      backgroundColor: StellarTheme.cardColor,
-                      title: const Text("Clear Chat?", style: TextStyle(color: Colors.white)),
-                      content: const Text(
-                        "This will delete all messages in this chat for everyone. This action cannot be undone.",
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: const Text("Cancel"),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const Text("Clear", style: TextStyle(color: Colors.redAccent)),
-                        ),
-                      ],
-                    ),
-                  );
+    // Determine Pattern/Wallpaper
+    String chatId = widget.receiverUserID;
+     if (!widget.isGroup) {
+        List<String> ids = [_auth.currentUser!.uid, widget.receiverUserID];
+        ids.sort();
+        chatId = ids.join("_");
+     }
+     
+    String? wallpaperId = currentUserModel?.chatWallpapers[chatId];
+    WallpaperOption wallpaper = Wallpapers.getById(wallpaperId ?? '');
 
-                  if (confirm == true) {
-                    await _chatService.clearChat(_auth.currentUser!.uid, widget.receiverUserID);
-                    if (mounted) {
-                       ScaffoldMessenger.of(context).showSnackBar(
-                         const SnackBar(content: Text("Chat cleared successfully")),
-                       );
-                    }
+    return PopScope(
+      canPop: !_isEmojiVisible,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        setState(() {
+          _isEmojiVisible = false;
+        });
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent, 
+          elevation: 0,
+          flexibleSpace: Container(
+           decoration: BoxDecoration(
+             color: StellarTheme.background.withOpacity(0.8),
+             border: Border(
+               bottom: BorderSide(
+                 color: Colors.white.withOpacity(0.05),
+                 width: 1
+               )
+             )
+           ),
+          ),
+          leading: IconButton(
+            icon: Icon(PhosphorIcons.arrowLeft(), color: Colors.white),
+            onPressed: () {
+               if (_isEmojiVisible) {
+                 setState(() => _isEmojiVisible = false);
+               } else {
+                 Navigator.pop(context);
+               }
+            },
+          ),
+          title: Row(
+            children: [
+              GestureDetector(
+                onTap: () {
+                  if (!widget.isGroup) {
+                     Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: widget.receiverUserID)));
+                  } else {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(
+                      groupId: widget.receiverUserID,
+                      groupName: displayName,
+                    )));
                   }
-                }
-              },
-              itemBuilder: (BuildContext context) {
-                return [
-                  const PopupMenuItem<String>(
-                    value: 'clear_chat',
-                    child: Text("Clear Chat"),
-                  ),
-                ];
-              },
-            ),
-          ],
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          color: StellarTheme.background,
-        ),
-        child: Stack(
-          children: [
-            // Background Radial Gradient
-            Positioned(
-              top: MediaQuery.of(context).size.height * 0.2,
-              right: -100,
-              child: Container(
-                width: 400,
-                height: 400,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: StellarTheme.primaryNeon.withOpacity(0.1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: StellarTheme.primaryNeon.withOpacity(0.15),
-                      blurRadius: 150,
-                      spreadRadius: 20,
+                },
+                child: Row(
+                  children: [
+                    Container(
+                      width: 35,
+                      height: 35,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        // MODIFIED: Use wallpaper accent for theming consistence
+                        gradient: widget.isGroup 
+                            ? const LinearGradient(colors: [Colors.black, StellarTheme.primaryNeon])
+                            : LinearGradient(colors: [wallpaper.accentColor, wallpaper.accentColor.withOpacity(0.7)]),
+                        boxShadow: [
+                          BoxShadow(color: wallpaper.accentColor.withOpacity(0.4), blurRadius: 10)
+                        ]
+                      ),
+                      child: Center(
+                        child: widget.isGroup 
+                          ? Icon(PhosphorIcons.usersThree(), size: 18, color: Colors.white)
+                          : Text(
+                              displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                          ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayName,
+                          style: const TextStyle(fontSize: 16, color: Colors.white),
+                        ),
+                        if (!widget.isGroup && !_isReceiverOnlineHidden)
+                          const Text(
+                              "Online", // TODO: Real status
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: StellarTheme.primaryNeon, 
+                              ),
+                            ),
+                      ],
                     ),
                   ],
                 ),
               ),
-            ),
-            Column(
-              children: [
-                Expanded(
-                  child: _buildMessageList(),
-                ),
-                isFriend 
-                    ? _buildMessageInput()
-                    : _buildRestrictionMessage(),
-              ],
-            ),
-          ],
+            ],
+          ),
+            actions: [
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, color: Colors.white),
+                onSelected: (value) async {
+                  if (value == 'export_chat') {
+                    _handleExportChat();
+                  } else if (value == 'unfollow') {
+                    _handleUnfollow();
+                  } else if (value == 'change_wallpaper') {
+                     // Calculate Chat ID properly to fetch current
+                     String chatId = widget.receiverUserID; // For group
+                     if (!widget.isGroup) {
+                        List<String> ids = [_auth.currentUser!.uid, widget.receiverUserID];
+                        ids.sort();
+                        chatId = ids.join("_");
+                     }
+                     
+                     String? currentWallpaperId = currentUserModel?.chatWallpapers[chatId];
+
+                     showModalBottomSheet(
+                       context: context,
+                       backgroundColor: Colors.transparent,
+                       isScrollControlled: true,
+                       builder: (context) => WallpaperSelector(
+                         currentWallpaperId: currentWallpaperId,
+                         onSelect: (option) {
+                           _chatService.updateChatWallpaper(chatId, option.id);
+                           Navigator.pop(context);
+                         },
+                       ),
+                     );
+                  } else if (value == 'clear_chat') {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        backgroundColor: StellarTheme.cardColor,
+                        title: const Text("Clear Chat?", style: TextStyle(color: Colors.white)),
+                        content: const Text(
+                          "This will delete all messages in this chat for everyone. This action cannot be undone.",
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text("Cancel"),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text("Clear", style: TextStyle(color: Colors.redAccent)),
+                          ),
+                        ],
+                      ),
+                    );
+
+                    if (confirm == true) {
+                      await _chatService.clearChat(_auth.currentUser!.uid, widget.receiverUserID);
+                      if (mounted) {
+                         ScaffoldMessenger.of(context).showSnackBar(
+                           const SnackBar(content: Text("Chat cleared successfully")),
+                         );
+                      }
+                    }
+                  }
+                },
+                itemBuilder: (BuildContext context) {
+                  return [
+                    if (widget.isGroup) ...[
+                      const PopupMenuItem<String>(
+                        value: 'change_wallpaper',
+                        child: Text("Change Wallpaper"),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'export_chat',
+                        child: Text("Export Chat"),
+                      ),
+                    ] else ...[
+                       if (isFriend)
+                        const PopupMenuItem<String>(
+                          value: 'unfollow',
+                          child: Text("Unfollow", style: TextStyle(color: Colors.redAccent)),
+                        ),
+                      const PopupMenuItem<String>(
+                          value: 'change_wallpaper',
+                          child: Text("Change Wallpaper"),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'export_chat',
+                        child: Text("Export Chat"),
+                      ),
+                    ],
+                    const PopupMenuItem<String>(
+                      value: 'clear_chat',
+                      child: Text("Clear Chat"),
+                    ),
+                  ];
+                },
+              ),
+            ],
+        ),
+        body: Container(
+          decoration: const BoxDecoration(
+            color: StellarTheme.background,
+          ),
+          child: Stack(
+            children: [
+              // Background Radial Gradient
+              // Dynamic Wallpaper Background
+              Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Base Gradient
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: wallpaper.colors,
+                        begin: wallpaper.begin,
+                        end: wallpaper.end,
+                        stops: wallpaper.stops,
+                      ),
+                    ),
+                  ),
+                  // Pattern Layer
+                  CustomPaint(
+                    painter: PatternPainter(
+                       pattern: wallpaper.pattern,
+                       color: wallpaper.accentColor.withOpacity(0.1), 
+                    ),
+                  ),
+                ],
+              ),
+              Column(
+                children: [
+                  Expanded(
+                    child: _buildMessageList(wallpaper),
+                  ),
+                  isFriend 
+                      ? _buildMessageInput(wallpaper)
+                      : _buildRestrictionMessage(),
+                  
+                  // Emoji Picker Overlay
+                  if (_isEmojiVisible)
+                    SizedBox(
+                      height: 250,
+                      child: emoji.EmojiPicker(
+                        onEmojiSelected: _onEmojiSelected,
+                        onBackspacePressed: _onBackspacePressed,
+                        config: emoji.Config(
+                          height: 256,
+                          checkPlatformCompatibility: true,
+                          emojiViewConfig: emoji.EmojiViewConfig(
+                            // Define grid and interaction
+                            columns: 7,
+                            emojiSizeMax: 28 * (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS ? 1.30 : 1.0),
+                            verticalSpacing: 0,
+                            horizontalSpacing: 0,
+                            gridPadding: EdgeInsets.zero,
+                            recentsLimit: 28,
+                            backgroundColor: StellarTheme.background,
+                            buttonMode: emoji.ButtonMode.MATERIAL,
+                            loadingIndicator: const SizedBox.shrink(),
+                            noRecents: const Text(
+                              'No Recents',
+                              style: TextStyle(fontSize: 20, color: Colors.black26),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          categoryViewConfig: emoji.CategoryViewConfig(
+                             initCategory: emoji.Category.RECENT,
+                             backgroundColor: StellarTheme.cardColor,
+                             indicatorColor: wallpaper.accentColor,
+                             iconColor: Colors.grey,
+                             iconColorSelected: wallpaper.accentColor,
+                             backspaceColor: wallpaper.accentColor,
+                             tabIndicatorAnimDuration: kTabScrollDuration,
+                             categoryIcons: const emoji.CategoryIcons(),
+                          ),
+                          bottomActionBarConfig: const emoji.BottomActionBarConfig(
+                             enabled: false, // We don't need the bottom bar if categories are enough
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -360,7 +561,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // BUILD MESSAGE LIST
-  Widget _buildMessageList() {
+  Widget _buildMessageList(WallpaperOption wallpaper) {
     Stream<QuerySnapshot> stream;
     if (widget.isGroup) {
       stream = _chatService.getGroupMessages(widget.receiverUserID);
@@ -388,7 +589,7 @@ class _ChatScreenState extends State<ChatScreen> {
           controller: _scrollController,
           padding: const EdgeInsets.only(top: 100, bottom: 20),
           children: snapshot.data!.docs
-              .map((doc) => _buildMessageItem(doc))
+              .map((doc) => _buildMessageItem(doc, wallpaper))
               .toList(),
         );
       },
@@ -396,7 +597,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // BUILD MESSAGE ITEM
-  Widget _buildMessageItem(DocumentSnapshot document) {
+  Widget _buildMessageItem(DocumentSnapshot document, WallpaperOption wallpaper) {
     Map<String, dynamic> data = document.data() as Map<String, dynamic>;
 
     bool isSender = data['senderId'] == _auth.currentUser!.uid;
@@ -464,9 +665,13 @@ class _ChatScreenState extends State<ChatScreen> {
         if (isLikelyCiphertext) {
            messageText = "🔒 Secure Message (Key not found)";
         }
-        
-        // If we are still loading the key, show loading dots or cached encrypted text?
-        // Actually, if _decryptMessage returns "Unable to decrypt", we show that.
+
+        // GIF/Image Detection
+        // Check if message is a Giphy URL or general image URL
+        bool isImage = false;
+        if (messageText.startsWith('http') && (messageText.contains('giphy.com') || messageText.contains('media.giphy.com') || messageText.endsWith('.gif'))) {
+           isImage = true;
+        }
         
         return Container(
           alignment: alignment,
@@ -490,10 +695,31 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Column(
                   crossAxisAlignment: isSender ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                   children: [
-                    ChatBubble(
-                      message: messageText,
-                      isSender: isSender,
-                    ),
+                    if (isImage)
+                      Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: CachedNetworkImage(
+                             imageUrl: messageText,
+                             placeholder: (context, url) => Container(
+                               width: 200, height: 150, 
+                               color: Colors.white10, 
+                               child: const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon))
+                             ),
+                             errorWidget: (context, url, _) => ChatBubble(message: messageText, isSender: isSender, color: wallpaper.bubbleColor),
+                             width: 200,
+                             fit: BoxFit.cover,
+                          ),
+                        ),
+                      )
+                    else
+                      ChatBubble(
+                        message: messageText,
+                        isSender: isSender,
+                        color: wallpaper.bubbleColor,
+                      ),
+                    
                     // 1-on-1 Read Status
                     if (!widget.isGroup && isSender)
                       Padding(
@@ -545,7 +771,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // BUILD MESSAGE INPUT
-  Widget _buildMessageInput() {
+  Widget _buildMessageInput(WallpaperOption wallpaper) {
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
@@ -559,6 +785,29 @@ class _ChatScreenState extends State<ChatScreen> {
         top: false,
         child: Row(
           children: [
+            // Emoji Button
+            IconButton(
+              icon: Icon(
+                _isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined,
+                color: Colors.grey,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isEmojiVisible = !_isEmojiVisible;
+                });
+                if (_isEmojiVisible) {
+                   _focusNode.unfocus();
+                   // Wait for keybaord close
+                } else {
+                   _focusNode.requestFocus();
+                }
+              },
+            ),
+             // GIF Button
+            IconButton(
+              icon: const Icon(Icons.gif_box_outlined, color: Colors.grey),
+              onPressed: _pickGif,
+            ),
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -570,6 +819,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 child: TextField(
                   controller: _messageController,
+                  focusNode: _focusNode,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     hintText: "Type a message...",
@@ -580,18 +830,26 @@ class _ChatScreenState extends State<ChatScreen> {
                       vertical: 12,
                     ),
                   ),
+                  cursorColor: wallpaper.accentColor,
                   onSubmitted: (_) => sendMessage(),
+                  onTap: () {
+                     // Hide emoji if field tapped
+                     if (_isEmojiVisible) setState(() => _isEmojiVisible = false);
+                  },
                 ),
               ),
             ),
             const SizedBox(width: 12),
             Container(
               decoration: BoxDecoration(
-                gradient: StellarTheme.primaryGradient,
+                gradient: LinearGradient(
+                   colors: [wallpaper.accentColor, wallpaper.accentColor.withOpacity(0.8)],
+                   begin: Alignment.bottomLeft, end: Alignment.topRight,
+                ),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: StellarTheme.primaryNeon.withOpacity(0.4),
+                    color: wallpaper.accentColor.withOpacity(0.4),
                     blurRadius: 10,
                   )
                 ],
@@ -700,5 +958,136 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       },
     );
+  }
+
+  // EXPORT CHAT
+  Future<void> _handleExportChat() async {
+    try {
+      // 1. Show Loading
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Preparing chat export..."), duration: Duration(seconds: 1)),
+      );
+
+      // 2. Fetch All Messages
+      QuerySnapshot snapshot;
+      if (widget.isGroup) {
+         snapshot = await _chatService.getGroupMessages(widget.receiverUserID).first;
+      } else {
+         snapshot = await _chatService.getMessages(widget.receiverUserID, _auth.currentUser!.uid).first;
+      }
+
+      StringBuffer buffer = StringBuffer();
+      buffer.writeln("Chat Export - ${widget.receiverName.isNotEmpty ? widget.receiverName : 'Chat'}");
+      buffer.writeln("Exported on: ${DateTime.now().toString()}");
+      buffer.writeln("--------------------------------------------------\n");
+
+      // 3. Process Messages
+      for (var doc in snapshot.docs) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        
+        Timestamp? ts = data['timestamp'];
+        String timeStr = ts != null ? ts.toDate().toString().split('.')[0] : "Unknown Time"; // Removing millis
+        
+        String senderName = data['senderName'] ?? (data['senderId'] == _auth.currentUser!.uid ? "Me" : "Other");
+        String messageContent = data['message'];
+
+        // Decrypt
+        String decryptedMessage = "...";
+        if (data['type'] == 'system') {
+           decryptedMessage = "[SYSTEM] $messageContent";
+        } else {
+           if (widget.isGroup) {
+             decryptedMessage = await _decryptGroupMessage(messageContent);
+           } else {
+             // For export, we try to decrypt as Me (sender) or Receiver? 
+             // We are the current user, so we decrypt using our context.
+             // If we sent it or received it, _decryptMessage handles it if keys are loaded.
+             // Note: _decryptMessage relies on _receiverPublicKey which might not be set if we are offline or something, 
+             // but usually it is fetched in initState.
+             // Wait, _decryptMessage uses _receiverPublicKey to decrypt? 
+             // EncryptionService().decryptMessage(content, publicKey) -> actually it uses MY private key and THEIR public key (ECDH).
+             // If I am sender, I need Receiver's Public Key.
+             // If I am receiver, I need Sender's Public Key.
+             
+             // The logic in _decryptMessage:
+             // return await EncryptionService().decryptMessage(content, _receiverPublicKey!);
+             // This assumes 1-on-1 chat always uses the OTHER person's public key + MY private key.
+             // This holds true for X25519 shared secret derivation.
+             bool isSender = data['senderId'] == _auth.currentUser!.uid;
+             decryptedMessage = await _decryptMessage(messageContent, isSender);
+           }
+        }
+        
+      buffer.writeln("[$timeStr] $senderName: $decryptedMessage");
+      }
+
+      // 4. Create XFile from Data (Cross-platform safe)
+      // sanitize filename
+      String safeName = widget.receiverName.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
+      if (safeName.isEmpty) safeName = "chat_export";
+      
+      final Uint8List bytes = utf8.encode(buffer.toString());
+      final XFile xFile = XFile.fromData(
+        bytes,
+        mimeType: 'text/plain',
+        name: '${safeName}_export.txt',
+      );
+
+      // 5. Share
+      // Note: On Web, shareXFiles might trigger a download if sharing is not supported by the browser, 
+      // or open the native share sheet checking availability.
+      await Share.shareXFiles([xFile], text: 'Here is the chat export for $safeName.');
+
+    } catch (e) {
+      debugPrint("Export failed: $e");
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Export failed: $e"), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
+  // UNFOLLOW
+  Future<void> _handleUnfollow() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StellarTheme.cardColor,
+        title: const Text("Unfollow User?", style: TextStyle(color: Colors.white)),
+        content: Text(
+          "Are you sure you want to unfollow ${widget.receiverName}? You won't be able to message them until you are friends again.",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Unfollow", style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await Provider.of<AuthService>(context, listen: false).removeFriend(widget.receiverUserID);
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text("Unfollowed successfully")),
+           );
+           // Toggle state will update via stream and `isFriend` check in build()
+        }
+      } catch (e) {
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text("Failed to unfollow: $e"), backgroundColor: Colors.redAccent),
+           );
+         }
+      }
+    }
   }
 }

@@ -563,4 +563,20 @@ class ChatService extends ChangeNotifier {
           });
     }
   }
+
+  // UPDATE CHAT WALLPAPER
+  Future<void> updateChatWallpaper(String chatId, String wallpaperId) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    try {
+      await _firestore.collection('users').doc(currentUserId).set({
+        'chatWallpapers': {
+          chatId: wallpaperId,
+        }
+      }, SetOptions(merge: true));
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error updating wallpaper: $e");
+      rethrow;
+    }
+  }
 }

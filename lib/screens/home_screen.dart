@@ -61,12 +61,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
       extendBodyBehindAppBar: true, 
       appBar: AppBar(
         title: ShaderMask(
           shaderCallback: (bounds) =>
-              StellarTheme.primaryGradient.createShader(bounds),
+              LinearGradient(colors: [theme.primaryColor, theme.colorScheme.secondary]).createShader(bounds),
           child: const Text(
             "TeX",
             style: TextStyle(
@@ -81,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             onPressed: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
             },
-            icon: Icon(PhosphorIcons.magnifyingGlass(), color: StellarTheme.textSecondary),
+            icon: Icon(PhosphorIcons.magnifyingGlass(), color: theme.hintColor),
           ),
           Stack(
             children: [
@@ -89,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 onPressed: () {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const RequestsScreen()));
                 },
-                icon: Icon(PhosphorIcons.userPlus(), color: StellarTheme.textSecondary),
+                icon: Icon(PhosphorIcons.userPlus(), color: theme.hintColor),
               ),
               // Optional: Add red dot if pending requests
             ],
@@ -100,14 +101,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             },
             icon: Icon(
               PhosphorIcons.gear(),
-              color: StellarTheme.textSecondary,
+              color: theme.hintColor,
             ),
           ),
           IconButton(
             onPressed: () => signOut(context),
             icon: Icon(
               PhosphorIcons.signOut(),
-              color: StellarTheme.textSecondary,
+              color: theme.hintColor,
             ),
           ),
         ],
@@ -115,9 +116,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         elevation: 0,
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: StellarTheme.primaryNeon,
-          labelColor: StellarTheme.primaryNeon,
-          unselectedLabelColor: StellarTheme.textSecondary,
+          indicatorColor: theme.primaryColor,
+          labelColor: theme.primaryColor,
+          unselectedLabelColor: theme.hintColor,
           tabs: const [
             Tab(text: "CHATS"),
             Tab(text: "GROUPS"),
@@ -135,12 +136,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
              Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen())); // Allow creating group from anywhere
           }
         },
-        backgroundColor: StellarTheme.primaryNeon,
+        backgroundColor: theme.primaryColor,
         child: Icon(PhosphorIcons.plus(), color: Colors.white),
       ),
       body: Container(
-         decoration: const BoxDecoration(
-          color: StellarTheme.background,
+         decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
         ),
         child: Stack(
           children: [
@@ -153,10 +154,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 height: 300,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: StellarTheme.primaryNeon.withOpacity(0.2),
+                  color: theme.primaryColor.withOpacity(0.2),
                   boxShadow: [
                     BoxShadow(
-                      color: StellarTheme.primaryNeon.withOpacity(0.2),
+                      color: theme.primaryColor.withOpacity(0.2),
                       blurRadius: 100,
                       spreadRadius: 50,
                     ),
@@ -193,10 +194,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text("No friends yet.", style: TextStyle(color: StellarTheme.textSecondary)),
+                Text("No friends yet.", style: TextStyle(color: Theme.of(context).hintColor)),
                 TextButton(
                   onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
-                  child: const Text("Find Friends", style: TextStyle(color: StellarTheme.primaryNeon)),
+                  child: Text("Find Friends", style: TextStyle(color: Theme.of(context).primaryColor)),
                 ),
               ],
             ),
