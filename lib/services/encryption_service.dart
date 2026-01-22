@@ -120,6 +120,15 @@ class EncryptionService {
       return clearText;
 
     } catch (e) {
+      if (e.toString().contains("SecretBoxAuthenticationError") || e.toString().contains("MAC")) {
+         // This typically happens when keys are rotated but old messages remain.
+         // checking for 'plaintext' fallback first:
+         // If it's just a plain string (not base64), it might be legacy or system message.
+         // But for now, returning a safe placeholder is better than crashing or spamming logs.
+         // debugPrint("⚠️ Decryption Warning: Old key interaction.");
+         return "🔒 Encrypted Message (Keys Rotated)";
+      }
+      
       // Graceful Fallback: If decryption fails (e.g. it's plaintext), return original
       return encryptedContent;
     }
@@ -167,6 +176,9 @@ class EncryptionService {
       
       return utf8.decode(clearTextBytes);
     } catch (e) {
+      if (e.toString().contains("SecretBoxAuthenticationError")) {
+          return "🔒 Encrypted Group Message (Key Rotated)";
+      }
       // Graceful Fallback for Groups too
       return encryptedContent;
     }
