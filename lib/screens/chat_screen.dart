@@ -22,6 +22,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:giphy_picker/giphy_picker.dart'; 
 import 'package:url_launcher/url_launcher.dart';
 // import 'dart:io'; // Removed for Web compatibility
+import 'package:texting/config/secrets.dart';
 import 'package:flutter/foundation.dart'; // For defaultTargetPlatform and kIsWeb
 
 class ChatScreen extends StatefulWidget {
@@ -123,11 +124,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _pickGif() async {
      try {
-       // Using a public placeholder key for demo purposes if the specific one fails
-       // But keeping the previous one with better error handling.
        final gif = await GiphyPicker.pickGif(
           context: context,
-          apiKey: 'fwM59k41b072c1c6e1be85311855f751', 
+          apiKey: Secrets.giphyApiKey,
           showPreviewPage: false,
        );
 
@@ -143,12 +142,29 @@ class _ChatScreenState extends State<ChatScreen> {
           }
        }
      } catch (e) {
-       ScaffoldMessenger.of(context).showSnackBar(
-         SnackBar(
-            content: Text("Giphy Error: ${e.toString().contains('401') ? 'Invalid Key (Quota Exceeded)' : e.toString()}"),
-            backgroundColor: Colors.redAccent,
-         )
-       );
+       if (mounted) {
+         final theme = Theme.of(context);
+         // Show a more helpful dialog instead of a snackbar for API errors
+         showDialog(
+           context: context,
+           builder: (ctx) => AlertDialog(
+             backgroundColor: theme.cardColor,
+             title: const Text("Giphy Error", style: TextStyle(color: Colors.white)),
+             content: Text(
+               e.toString().contains('401') 
+                  ? "The Giphy API Key has exceeded its limit or is invalid. Please update the key in `lib/config/secrets.dart`."
+                  : "An unexpected error occurred: $e",
+               style: const TextStyle(color: Colors.white70),
+             ),
+             actions: [
+               TextButton(
+                 onPressed: () => Navigator.pop(ctx),
+                 child: Text("OK", style: TextStyle(color: theme.primaryColor)),
+               ),
+             ],
+           ),
+         );
+       }
      }
   }
 
@@ -242,6 +258,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // print("Building ChatScreen"); // Use print for simple debug or remove
     final authService = Provider.of<AuthService>(context);
     final currentUserModel = authService.currentUserModel;
+    final theme = Theme.of(context);
 
     bool isFriend = false;
     if (widget.isGroup) {
@@ -270,6 +287,18 @@ class _ChatScreenState extends State<ChatScreen> {
      
     String? wallpaperId = currentUserModel?.chatWallpapers[chatId];
     WallpaperOption wallpaper = Wallpapers.getById(wallpaperId ?? '');
+    // If no specific chat wallpaper, fallback to global theme logic if valid, or just wallpaper defaults.
+    // Actually Wallpapers.getById defaults to Crimson Eclipse if null not found.
+    // If we want it to match global theme by default, we should check globalWallpaperId if specific is null?
+    // Current logic: Wallpapers.getById returns default if null passed. 
+    // Ideally: if currentUserModel.chatWallpapers[chatId] is null, we might want to use global.
+    // But let's stick to current logic unless requested.
+    
+    // The user wants "appearance in settings must change the entire apps theme... group and profile page...".
+     if (wallpaperId == null) {
+       // Use global wallpaper if specific is not set
+       wallpaper = Wallpapers.getById(currentUserModel?.globalWallpaperId ?? 'crimson_eclipse');
+     }
 
     return PopScope(
       canPop: !_isEmojiVisible,
@@ -286,7 +315,7 @@ class _ChatScreenState extends State<ChatScreen> {
           elevation: 0,
           flexibleSpace: Container(
            decoration: BoxDecoration(
-             color: StellarTheme.background.withOpacity(0.8),
+             color: theme.scaffoldBackgroundColor.withOpacity(0.8),
              border: Border(
                bottom: BorderSide(
                  color: Colors.white.withOpacity(0.05),
@@ -325,9 +354,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       height: 35,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        // MODIFIED: Use wallpaper accent for theming consistence
+                        // MODIFIED: Use theme accent for theming consistence
                         gradient: widget.isGroup 
-                            ? const LinearGradient(colors: [Colors.black, StellarTheme.primaryNeon])
+                            ? LinearGradient(colors: [Colors.black, theme.primaryColor])
                             : LinearGradient(colors: [wallpaper.accentColor, wallpaper.accentColor.withOpacity(0.7)]),
                         boxShadow: [
                           BoxShadow(color: wallpaper.accentColor.withOpacity(0.4), blurRadius: 10)
@@ -354,11 +383,11 @@ class _ChatScreenState extends State<ChatScreen> {
                           style: const TextStyle(fontSize: 16, color: Colors.white),
                         ),
                         if (!widget.isGroup && !_isReceiverOnlineHidden)
-                          const Text(
+                           Text(
                               "Online", // TODO: Real status
                               style: TextStyle(
                                 fontSize: 12,
-                                color: StellarTheme.primaryNeon, 
+                                color: theme.primaryColor, 
                               ),
                             ),
                       ],
@@ -386,6 +415,10 @@ class _ChatScreenState extends State<ChatScreen> {
                      }
                      
                      String? currentWallpaperId = currentUserModel?.chatWallpapers[chatId];
+                     // Default to global if null
+                     if (currentWallpaperId == null) {
+                        currentWallpaperId = currentUserModel?.globalWallpaperId ?? 'crimson_eclipse';
+                     }
 
                      showModalBottomSheet(
                        context: context,
@@ -403,7 +436,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     final confirm = await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(
-                        backgroundColor: StellarTheme.cardColor,
+                        backgroundColor: theme.cardColor,
                         title: const Text("Clear Chat?", style: TextStyle(color: Colors.white)),
                         content: const Text(
                           "This will delete all messages in this chat for everyone. This action cannot be undone.",
@@ -468,8 +501,8 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
         ),
         body: Container(
-          decoration: const BoxDecoration(
-            color: StellarTheme.background,
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
           ),
           child: Stack(
             children: [
@@ -501,7 +534,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Column(
                 children: [
                   Expanded(
-                    child: _buildMessageList(wallpaper),
+                    child: _buildMessageList(wallpaper, theme),
                   ),
                   isFriend 
                       ? _buildMessageInput(wallpaper)
@@ -525,7 +558,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             horizontalSpacing: 0,
                             gridPadding: EdgeInsets.zero,
                             recentsLimit: 28,
-                            backgroundColor: StellarTheme.background,
+                            backgroundColor: theme.scaffoldBackgroundColor,
                             buttonMode: emoji.ButtonMode.MATERIAL,
                             loadingIndicator: const SizedBox.shrink(),
                             noRecents: const Text(
@@ -536,14 +569,14 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                           categoryViewConfig: emoji.CategoryViewConfig(
                              initCategory: emoji.Category.RECENT,
-                             backgroundColor: StellarTheme.cardColor,
+                             backgroundColor: theme.cardColor,
                              indicatorColor: wallpaper.accentColor,
                              iconColor: Colors.grey,
                              iconColorSelected: wallpaper.accentColor,
                              backspaceColor: wallpaper.accentColor,
                              tabIndicatorAnimDuration: kTabScrollDuration,
                              categoryIcons: const emoji.CategoryIcons(),
-                          ),
+                           ),
                           bottomActionBarConfig: const emoji.BottomActionBarConfig(
                              enabled: false, // We don't need the bottom bar if categories are enough
                           ),
@@ -573,7 +606,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // BUILD MESSAGE LIST
-  Widget _buildMessageList(WallpaperOption wallpaper) {
+  Widget _buildMessageList(WallpaperOption wallpaper, ThemeData theme) {
     Stream<QuerySnapshot> stream;
     if (widget.isGroup) {
       stream = _chatService.getGroupMessages(widget.receiverUserID);
@@ -591,7 +624,7 @@ class _ChatScreenState extends State<ChatScreen> {
           return Center(child: Text('Error: ${snapshot.error}'));
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
+          return Center(child: CircularProgressIndicator(color: theme.primaryColor));
         }
 
         // Auto Scroll on new message
@@ -601,7 +634,7 @@ class _ChatScreenState extends State<ChatScreen> {
           controller: _scrollController,
           padding: const EdgeInsets.only(top: 100, bottom: 20),
           children: snapshot.data!.docs
-              .map((doc) => _buildMessageItem(doc, wallpaper))
+              .map((doc) => _buildMessageItem(doc, wallpaper, theme))
               .toList(),
         );
       },
@@ -609,7 +642,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // BUILD MESSAGE ITEM
-  Widget _buildMessageItem(DocumentSnapshot document, WallpaperOption wallpaper) {
+  Widget _buildMessageItem(DocumentSnapshot document, WallpaperOption wallpaper, ThemeData theme) {
     Map<String, dynamic> data = document.data() as Map<String, dynamic>;
 
     bool isSender = data['senderId'] == _auth.currentUser!.uid;
@@ -695,12 +728,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   padding: const EdgeInsets.only(left: 12.0, top: 4),
                   child: Text(
                     data['senderName'] ?? 'Data',
-                    style: const TextStyle(color: StellarTheme.primaryNeon, fontSize: 10, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: theme.primaryColor, fontSize: 10, fontWeight: FontWeight.bold),
                   ),
                 ),
               GestureDetector(
                 onLongPress: () {
-                   _showMessageOptions(context, data, document.id, isSender, messageText);
+                   _showMessageOptions(context, data, document.id, isSender, messageText, theme);
                 },
                 child: Column(
                   crossAxisAlignment: isSender ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -715,7 +748,7 @@ class _ChatScreenState extends State<ChatScreen> {
                              placeholder: (context, url) => Container(
                                width: 200, height: 150, 
                                color: Colors.white10, 
-                               child: const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon))
+                               child: Center(child: CircularProgressIndicator(color: theme.primaryColor))
                              ),
                              errorWidget: (context, url, _) => ChatBubble(
                                message: messageText, 
@@ -746,7 +779,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ? Icon(
                                     Icons.done_all,
                                     size: 16,
-                                    color: (data['isRead'] ?? false) ? StellarTheme.primaryNeon : Colors.white30,
+                                    color: (data['isRead'] ?? false) ? theme.primaryColor : Colors.white30,
                                   )
                                 : const SizedBox.shrink() // Group chats don't show ticks on list yet (only info)
                               ),
@@ -764,15 +797,15 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _showMessageOptions(BuildContext context, Map<String, dynamic> data, String messageId, bool isSender, String messageText) {
+  void _showMessageOptions(BuildContext context, Map<String, dynamic> data, String messageId, bool isSender, String messageText, ThemeData theme) {
     bool isStarred = (data['starredBy'] as List?)?.contains(_auth.currentUser!.uid) ?? false;
     
     showModalBottomSheet(
       context: context, 
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: StellarTheme.cardColor,
+        decoration: BoxDecoration(
+          color: theme.cardColor,
           borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
         ),
         padding: const EdgeInsets.symmetric(vertical: 20),

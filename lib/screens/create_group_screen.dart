@@ -88,6 +88,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     final authService = Provider.of<AuthService>(context);
     final userModel = authService.currentUserModel;
     final List<String> friendIds = userModel?.friends ?? [];
+    final theme = Theme.of(context);
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -102,15 +103,15 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isLoading ? null : _createGroup,
-        backgroundColor: StellarTheme.primaryNeon,
+        backgroundColor: theme.primaryColor,
         icon: _isLoading 
           ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white))
           : Icon(PhosphorIcons.check(), color: Colors.white), 
         label: Text(_isLoading ? "Creating..." : "Create Group", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          color: StellarTheme.background,
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
         ),
         child: Column(
           children: [
@@ -126,7 +127,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                       style: const TextStyle(color: Colors.white, fontSize: 18),
                       decoration: InputDecoration(
                         hintText: "Group Name",
-                        prefixIcon: Icon(PhosphorIcons.usersThree(), color: StellarTheme.primaryNeon),
+                        prefixIcon: Icon(PhosphorIcons.usersThree(), color: theme.primaryColor),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.05),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
@@ -178,7 +179,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                 builder: (context, snapshot) {
                   if (snapshot.hasError) return const Center(child: Text("Error loading friends"));
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
+                    return Center(child: CircularProgressIndicator(color: theme.primaryColor));
                   }
                   
                   final docs = snapshot.data!.docs;
@@ -196,11 +197,11 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         margin: const EdgeInsets.only(bottom: 8),
                         decoration: BoxDecoration(
                           color: isSelected 
-                              ? StellarTheme.primaryNeon.withOpacity(0.1) 
+                              ? theme.primaryColor.withOpacity(0.1) 
                               : Colors.transparent,
                           borderRadius: BorderRadius.circular(12),
                           border: isSelected 
-                              ? Border.all(color: StellarTheme.primaryNeon.withOpacity(0.5)) 
+                              ? Border.all(color: theme.primaryColor.withOpacity(0.5)) 
                               : Border.all(color: Colors.transparent),
                         ),
                         child: ListTile(
@@ -208,9 +209,9 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                           leading: Container(
                             width: 40,
                             height: 40,
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              gradient: StellarTheme.primaryGradient,
+                              gradient: LinearGradient(colors: [theme.primaryColor, theme.colorScheme.secondary]),
                             ),
                             child: Center(
                               child: Text(
@@ -221,7 +222,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                           ),
                           title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                           trailing: isSelected 
-                              ? Icon(PhosphorIcons.checkCircle(PhosphorIconsStyle.fill), color: StellarTheme.primaryNeon)
+                              ? Icon(PhosphorIcons.checkCircle(PhosphorIconsStyle.fill), color: theme.primaryColor)
                               : Icon(PhosphorIcons.circle(), color: StellarTheme.textSecondary),
                         ),
                       );

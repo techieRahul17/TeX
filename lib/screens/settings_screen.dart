@@ -11,7 +11,8 @@ import 'package:texting/screens/starred_messages_screen.dart';
 import 'package:glassmorphism/glassmorphism.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final bool isTab;
+  const SettingsScreen({super.key, this.isTab = false});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -61,7 +62,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Profile Updated Successfully!")),
         );
-        Navigator.pop(context);
+        // Only pop if we are in a pushed route (stick to tab if isTab)
+        if (!widget.isTab) {
+          Navigator.pop(context);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -89,10 +93,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text("Settings", style: TextStyle(color: Colors.white)),
-        leading: IconButton(
-          icon: Icon(PhosphorIcons.arrowLeft(), color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+        automaticallyImplyLeading: !widget.isTab,
+        leading: widget.isTab 
+          ? null 
+          : IconButton(
+            icon: Icon(PhosphorIcons.arrowLeft(), color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
       ),
       body: Container(
         decoration: BoxDecoration(
