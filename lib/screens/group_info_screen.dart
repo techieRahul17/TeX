@@ -113,6 +113,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
   @override
   Widget build(BuildContext context) {
     final currentUserId = FirebaseAuth.instance.currentUser!.uid;
+    final theme = Theme.of(context);
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -126,13 +127,13 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
         ),
       ),
       body: Container(
-         decoration: const BoxDecoration(
-          color: StellarTheme.background,
+         decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
         ),
         child: StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance.collection('groups').doc(widget.groupId).snapshots(),
           builder: (context, snapshot) {
-            if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
+            if (!snapshot.hasData) return Center(child: CircularProgressIndicator(color: theme.primaryColor));
             
             final groupData = snapshot.data!.data() as Map<String, dynamic>;
             final String name = groupData['name'] ?? widget.groupName;
@@ -162,13 +163,13 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                           height: 100,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            gradient: const LinearGradient(
-                              colors: [Colors.black, StellarTheme.primaryNeon],
+                            gradient: LinearGradient(
+                              colors: [Colors.black, theme.primaryColor],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
                             boxShadow: [
-                              BoxShadow(color: StellarTheme.primaryNeon.withOpacity(0.5), blurRadius: 20)
+                              BoxShadow(color: theme.primaryColor.withOpacity(0.5), blurRadius: 20)
                             ],
                           ),
                           child: Center(
@@ -202,6 +203,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                               icon: isMutedInDb ? PhosphorIcons.bellSlash() : PhosphorIcons.bell(),
                               label: isMutedInDb ? "Unmute" : "Mute",
                               onTap: () => _toggleMute(!isMutedInDb),
+                              color: theme.primaryColor,
                             ),
                             if (isAdmin || (groupData['coAdmins'] as List? ?? []).contains(currentUserId)) ...[
                               const SizedBox(width: 16),
@@ -209,12 +211,14 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                 icon: PhosphorIcons.pencilSimple(),
                                 label: "Edit",
                                 onTap: () => _editGroupDetails(name, description),
+                                color: theme.primaryColor,
                               ),
                               const SizedBox(width: 16),
                               _ActionButton(
                                 icon: PhosphorIcons.userPlus(),
                                 label: "Add",
                                 onTap: () => _addParticipants(List<String>.from(members)),
+                                color: theme.primaryColor,
                               ),
                             ],
                             const SizedBox(width: 16),
@@ -276,7 +280,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
 
                           if (isLeader) {
                             statusText = "Leader";
-                            statusColor = StellarTheme.primaryNeon;
+                            statusColor = theme.primaryColor;
                             roleIcon = PhosphorIcons.crownSimple(PhosphorIconsStyle.fill);
                             roleColor = Colors.amber;
                           } else if (isCoAdmin) {
@@ -293,9 +297,9 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                             leading: Container(
                               width: 40,
                               height: 40,
-                              decoration: const BoxDecoration(
+                              decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                gradient: StellarTheme.primaryGradient,
+                                gradient: LinearGradient(colors: [theme.primaryColor, theme.colorScheme.secondary]),
                               ),
                               child: Center(child: Text(userName[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                             ),
@@ -314,7 +318,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                      onTap: () {
                                        Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: memberId)));
                                      },
-                                     child: Icon(PhosphorIcons.userPlus(), color: StellarTheme.primaryNeon, size: 20),
+                                     child: Icon(PhosphorIcons.userPlus(), color: theme.primaryColor, size: 20),
                                    ),
                               ],
                             ),
@@ -449,15 +453,16 @@ class _AddParticipantsSheetState extends State<_AddParticipantsSheet> {
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context, listen: false);
     final friendIds = authService.currentUserModel?.friends ?? [];
+    final theme = Theme.of(context);
     
     // Filter friends who are NOT already in the group
     final potentialMembers = friendIds.where((uid) => !widget.currentMemberIds.contains(uid)).toList();
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
-      decoration: const BoxDecoration(
-        color: StellarTheme.background,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -491,12 +496,15 @@ class _AddParticipantsSheetState extends State<_AddParticipantsSheet> {
                             },
                             leading: Container(
                               width: 36, height: 36,
-                              decoration: const BoxDecoration(shape: BoxShape.circle, gradient: StellarTheme.primaryGradient),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle, 
+                                gradient: LinearGradient(colors: [theme.primaryColor, theme.colorScheme.secondary])
+                              ),
                               child: Center(child: Text(name[0], style: const TextStyle(color: Colors.white))),
                             ),
                             title: Text(name, style: const TextStyle(color: Colors.white)),
                             trailing: isSelected 
-                                ? Icon(PhosphorIcons.checkCircle(PhosphorIconsStyle.fill), color: StellarTheme.primaryNeon)
+                                ? Icon(PhosphorIcons.checkCircle(PhosphorIconsStyle.fill), color: theme.primaryColor)
                                 : Icon(PhosphorIcons.circle(), color: StellarTheme.textSecondary),
                           );
                         },
@@ -508,7 +516,7 @@ class _AddParticipantsSheetState extends State<_AddParticipantsSheet> {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: _selectedIds.isEmpty || _isLoading ? null : _add,
-              style: ElevatedButton.styleFrom(backgroundColor: StellarTheme.primaryNeon),
+              style: ElevatedButton.styleFrom(backgroundColor: theme.primaryColor),
               child: _isLoading 
                 ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white)) 
                 : const Text("Add Selected", style: TextStyle(color: Colors.white)),

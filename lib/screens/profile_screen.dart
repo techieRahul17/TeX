@@ -10,17 +10,20 @@ import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
 import 'package:texting/widgets/stellar_textfield.dart';
 import 'package:texting/models/user_model.dart';
+import 'package:country_code_picker/country_code_picker.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String userId;
   final bool isSelf;
   final UserModel? userModel; // Optional: Pass model directly if available from search
+  final bool showBackButton;
 
   const ProfileScreen({
     super.key,
     required this.userId,
     this.isSelf = false,
     this.userModel,
+    this.showBackButton = true,
   });
 
   @override
@@ -38,6 +41,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _skillController = TextEditingController();
   final TextEditingController _hobbyController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+  
+  String _currentCountryCode = '+91'; // Default
 
   List<String> _skills = [];
   List<String> _hobbies = [];
@@ -84,8 +89,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _saveProfile() async {
-    setState(() => _isLoading = true);
     final authService = Provider.of<AuthService>(context, listen: false);
+    final currentPhone = authService.currentUser?.phoneNumber;
+    
+    // Check if phone number changed and is not empty
+    if (_phoneController.text.isNotEmpty && _phoneController.text != currentPhone) {
+       // Trigger Verification Flow
+       _verifyPhoneNumber();
+       return;
+    }
+
+    setState(() => _isLoading = true);
     final chatService = Provider.of<ChatService>(context, listen: false);
 
     try {
@@ -93,7 +107,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         name: _nameController.text,
         about: _aboutController.text,
         funFact: _funFactController.text,
-        phoneNumber: _phoneController.text,
+        // phoneNumber: _phoneController.text, // Don't update directly! Verification handles it.
         skills: _skills,
         hobbies: _hobbies,
       );
@@ -130,14 +144,115 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Widget _buildChipList(List<String> items, Function(String) onRemove) {
+  void _verifyPhoneNumber() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    String phoneInput = _phoneController.text.trim();
+    
+    if (phoneInput.isEmpty) return;
+    
+    // Construct full number
+    // If user typed +123..., trust them.
+    // If user typed 123... (no plus), prepend default country code.
+    String fullNumber = phoneInput;
+    if (!phoneInput.startsWith('+')) {
+       fullNumber = "$_currentCountryCode$phoneInput";
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon)),
+    );
+
+    try {
+      await authService.verifyPhoneNumber(
+        phoneNumber: fullNumber,
+        codeSent: (verificationId, resendToken) {
+          Navigator.pop(context); // Close loading
+          _showOtpDialog(verificationId);
+        },
+        verificationFailed: (e) {
+          Navigator.pop(context); // Close loading
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Verification Failed: ${e.message}")),
+          );
+        },
+        codeAutoRetrievalTimeout: (verificationId) {},
+      );
+    } catch (e) {
+      Navigator.pop(context); // Close loading
+      ScaffoldMessenger.of(context).showSnackBar(
+         SnackBar(content: Text("Error: $e")),
+      );
+    }
+  }
+
+  // No changes needed for _verifyPhoneNumber logic as it's logic only, but _showOtpDialog needs Theme.
+
+  void _showOtpDialog(String verificationId) {
+    final theme = Theme.of(context);
+    final TextEditingController otpController = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: StellarTheme.cardColor,
+        title: const Text("Enter OTP", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("A verification code has been sent to your phone.", style: TextStyle(color: Colors.white70)),
+            const SizedBox(height: 16),
+            StellarTextField(controller: otpController, hintText: "123456", obscureText: false),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+             onPressed: () async {
+               final smsCode = otpController.text.trim();
+               if (smsCode.isEmpty) return;
+               
+               Navigator.pop(context); // Close OTP Dialog
+               // Show loading again would be nice, but async handling is fine
+               
+               try {
+                  final authService = Provider.of<AuthService>(context, listen: false);
+                  await authService.verifyOTP(verificationId: verificationId, smsCode: smsCode);
+                  
+                  if (mounted) {
+                     ScaffoldMessenger.of(context).showSnackBar(
+                       const SnackBar(content: Text("Phone Verified & Saved!")),
+                     );
+                     // Proceed to save rest of profile?
+                     _saveProfile();
+                  }
+               } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Invalid OTP: $e")),
+                    );
+                  }
+               }
+             },
+             child: Text("Verify", style: TextStyle(color: theme.primaryColor)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChipList(List<String> items, Function(String) onRemove, ThemeData theme) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: items.map((item) {
         return Chip(
           label: Text(item, style: const TextStyle(color: Colors.white)),
-          backgroundColor: StellarTheme.primaryNeon.withOpacity(0.2),
+          backgroundColor: theme.primaryColor.withOpacity(0.2),
           deleteIcon: _isEditing ? const Icon(Icons.close, size: 16, color: Colors.white) : null,
           onDeleted: _isEditing ? () => onRemove(item) : null,
           side: BorderSide.none,
@@ -147,12 +262,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title, IconData icon) {
+  Widget _buildSectionTitle(String title, IconData icon, ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0, top: 16.0),
       child: Row(
         children: [
-          Icon(icon, color: StellarTheme.primaryNeon, size: 20),
+          Icon(icon, color: theme.primaryColor, size: 20),
           const SizedBox(width: 8),
           Text(
             title.toUpperCase(),
@@ -168,7 +283,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildFriendActionButton(AuthService authService) {
+  Widget _buildFriendActionButton(AuthService authService, ThemeData theme) {
     final currentUser = authService.currentUserModel;
     if (currentUser == null) return const SizedBox();
 
@@ -202,7 +317,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ElevatedButton(
             onPressed: () => authService.acceptFriendRequest(widget.userId),
             style: ElevatedButton.styleFrom(
-              backgroundColor: StellarTheme.primaryNeon,
+              backgroundColor: theme.primaryColor,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
             ),
             child: const Text("Accept Request"),
@@ -217,7 +332,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         icon: const Icon(Icons.person_add),
         label: const Text("Add Friend"),
         style: ElevatedButton.styleFrom(
-          backgroundColor: StellarTheme.primaryNeon,
+          backgroundColor: theme.primaryColor,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -228,15 +343,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primaryColor = theme.primaryColor;
+    final secondaryColor = theme.colorScheme.secondary;
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+        automaticallyImplyLeading: widget.showBackButton,
+        leading: widget.showBackButton 
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            )
+          : null,
         actions: [
           if (widget.isSelf)
             IconButton(
@@ -249,8 +371,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          color: StellarTheme.background,
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor, // Dynamic Background
         ),
         child: Stack(
           children: [
@@ -263,12 +385,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 height: 300,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: StellarTheme.secondaryNeon.withOpacity(0.2),
+                  color: secondaryColor.withOpacity(0.2),
                   boxShadow: [
                     BoxShadow(
-                      color: StellarTheme.secondaryNeon.withOpacity(0.2),
+                      color: secondaryColor.withOpacity(0.2),
                       blurRadius: 100,
                       spreadRadius: 50,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+             Positioned(
+              bottom: -50,
+              left: -50,
+              child: Container(
+                width: 200,
+                height: 200,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: primaryColor.withOpacity(0.1),
+                  boxShadow: [
+                    BoxShadow(
+                      color: primaryColor.withOpacity(0.1),
+                      blurRadius: 100,
+                      spreadRadius: 40,
                     ),
                   ],
                 ),
@@ -287,13 +428,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                        height: 120,
                        decoration: BoxDecoration(
                          shape: BoxShape.circle,
-                         gradient: StellarTheme.primaryGradient,
+                         gradient: LinearGradient(colors: [primaryColor, secondaryColor]),
                          boxShadow: [
                            BoxShadow(
-                             color: StellarTheme.primaryNeon.withOpacity(0.4),
+                             color: primaryColor.withOpacity(0.4),
                              blurRadius: 20,
                              spreadRadius: 5,
-                           )
+                             )
                          ]
                        ),
                        child: Center(
@@ -310,7 +451,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                    // Friend Action Button (if not self)
                    if (!widget.isSelf)
                       Consumer<AuthService>(
-                        builder: (context, auth, _) => _buildFriendActionButton(auth),
+                        builder: (context, auth, _) => _buildFriendActionButton(auth, theme),
                       ),
                    
                    const SizedBox(height: 16),
@@ -328,13 +469,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                      const SizedBox(height: 8),
                      Text(
                        "@${_usernameController.text.isNotEmpty ? _usernameController.text : 'no_username'}",
-                       style: const TextStyle(fontSize: 16, color: StellarTheme.primaryNeon, letterSpacing: 1.1),
+                       style: TextStyle(fontSize: 16, color: primaryColor, letterSpacing: 1.1),
                      ),
                    ],
                     
                     const SizedBox(height: 32),
                     
-                    // Glass Card Content
                     // Glass Card Content
                     ClipRRect(
                       borderRadius: BorderRadius.circular(24),
@@ -359,14 +499,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                             // ABOUT
-                            _buildSectionTitle("About Me", PhosphorIcons.user()),
+                            _buildSectionTitle("About Me", PhosphorIcons.user(), theme),
                             if (_isEditing)
                               StellarTextField(controller: _aboutController, hintText: "Tell us about yourself...", obscureText: false, maxLines: 3)
                             else
                               Text(_aboutController.text.isEmpty ? "No bio yet." : _aboutController.text, style: const TextStyle(color: Colors.white70, fontSize: 16)),
                             
                             // FUN FACT
-                            _buildSectionTitle("Fun Fact", PhosphorIcons.sparkle()),
+                            _buildSectionTitle("Fun Fact", PhosphorIcons.sparkle(), theme),
                             if (_isEditing)
                               StellarTextField(controller: _funFactController, hintText: "What makes you unique?", obscureText: false)
                             else
@@ -374,21 +514,77 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                             // PHONE NUMBER (Private or Public depending on need, but required for SMS)
                             if (_isEditing || widget.isSelf) ...[
-                               _buildSectionTitle("Phone Number (For Offline SMS)", PhosphorIcons.phone()),
+                               Row(
+                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                 children: [
+                                   Expanded(child: _buildSectionTitle("Phone Number", PhosphorIcons.phone(), theme)),
+                                   if (_isEditing)
+                                      TextButton(
+                                        onPressed: _verifyPhoneNumber,
+                                        child: Text("Verify & Save", style: TextStyle(color: primaryColor)),
+                                      )
+                                 ],
+                               ),
                                if (_isEditing)
-                                 StellarTextField(controller: _phoneController, hintText: "+1234567890", obscureText: false)
+                                 Container(
+                                   decoration: BoxDecoration(
+                                     color: primaryColor.withOpacity(0.1),
+                                     borderRadius: BorderRadius.circular(12),
+                                     border: Border.all(color: primaryColor.withOpacity(0.3)),
+                                   ),
+                                   child: Row(
+                                     children: [
+                                        CountryCodePicker(
+                                          onChanged: (country) {
+                                            _currentCountryCode = country.dialCode ?? '+91';
+                                          },
+                                          initialSelection: 'IN', // Default to India or locale
+                                          favorite: const ['+91', 'US'],
+                                          showCountryOnly: false,
+                                          showOnlyCountryWhenClosed: false,
+                                          alignLeft: false,
+                                          textStyle: const TextStyle(color: Colors.white),
+                                          dialogBackgroundColor: StellarTheme.cardColor,
+                                          dialogTextStyle: const TextStyle(color: Colors.white),
+                                          barrierColor: Colors.black54,
+                                          dialogSize: const Size(300, 450), 
+                                          searchDecoration: const InputDecoration(
+                                            prefixIcon: Icon(Icons.search, color: Colors.white),
+                                            hintStyle: TextStyle(color: Colors.white54),
+                                            filled: true,
+                                            fillColor: Colors.black12,
+                                            border: OutlineInputBorder(borderSide: BorderSide.none),
+                                            contentPadding: EdgeInsets.zero,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _phoneController,
+                                            style: const TextStyle(color: Colors.white),
+                                            keyboardType: TextInputType.phone,
+                                            decoration: const InputDecoration(
+                                              hintText: "1234567890",
+                                              hintStyle: TextStyle(color: Colors.white30),
+                                              border: InputBorder.none,
+                                              contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                                            ),
+                                          ),
+                                        ),
+                                     ],
+                                   ),
+                                 )
                                else
                                  Text(_phoneController.text.isEmpty ? "Not set" : _phoneController.text, style: const TextStyle(color: Colors.white70, fontSize: 16)),
                             ],
 
                             // SKILLS
-                            _buildSectionTitle("Skills", PhosphorIcons.lightning()),
+                            _buildSectionTitle("Skills", PhosphorIcons.lightning(), theme),
                             if (_isEditing) ...[
                               Row(
                                 children: [
                                   Expanded(child: StellarTextField(controller: _skillController, hintText: "Add Skill", obscureText: false)),
                                   IconButton(
-                                    icon: const Icon(Icons.add_circle, color: StellarTheme.primaryNeon),
+                                    icon: Icon(Icons.add_circle, color: primaryColor),
                                     onPressed: () {
                                       if (_skillController.text.isNotEmpty) {
                                         setState(() {
@@ -402,16 +598,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               const SizedBox(height: 8),
                             ],
-                            _buildChipList(_skills, (item) => setState(() => _skills.remove(item))),
+                            _buildChipList(_skills, (item) => setState(() => _skills.remove(item)), theme),
 
                             // HOBBIES
-                            _buildSectionTitle("Hobbies", PhosphorIcons.heart()),
+                            _buildSectionTitle("Hobbies", PhosphorIcons.heart(), theme),
                             if (_isEditing) ...[
                               Row(
                                 children: [
                                   Expanded(child: StellarTextField(controller: _hobbyController, hintText: "Add Hobby", obscureText: false)),
                                   IconButton(
-                                    icon: const Icon(Icons.add_circle, color: StellarTheme.secondaryNeon),
+                                    icon: Icon(Icons.add_circle, color: secondaryColor),
                                     onPressed: () {
                                       if (_hobbyController.text.isNotEmpty) {
                                         setState(() {
@@ -425,16 +621,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               const SizedBox(height: 8),
                             ],
-                            _buildChipList(_hobbies, (item) => setState(() => _hobbies.remove(item))),
+                            _buildChipList(_hobbies, (item) => setState(() => _hobbies.remove(item)), theme),
                             
                             if (_isEditing) ...[
                               const SizedBox(height: 32),
                               _isLoading 
-                              ? const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon))
+                              ? Center(child: CircularProgressIndicator(color: primaryColor))
                               : ElevatedButton(
                                 onPressed: _saveProfile,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: StellarTheme.primaryNeon,
+                                  backgroundColor: primaryColor,
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                   padding: const EdgeInsets.symmetric(vertical: 16),
                                 ),

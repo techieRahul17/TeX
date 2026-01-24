@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:ui'; // For ImageFilter
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -23,36 +24,14 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _HomeScreenState extends State<HomeScreen> {
+  int _currentIndex = 0;
+  final PageController _pageController = PageController();
 
   @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _checkProfileCompletion();
-  }
-
-  void _checkProfileCompletion() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        // Force profile setup if flag is false OR missing (legacy users)
-        if ((data['isProfileComplete'] ?? false) == false) {
-           // Small delay to ensure context is ready
-           Future.delayed(const Duration(milliseconds: 500), () {
-             if (mounted) {
-               Navigator.push(
-                 context, 
-                 MaterialPageRoute(builder: (_) => ProfileScreen(userId: user.uid, isSelf: true))
-               );
-             }
-           });
-        }
-      }
-    }
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   void signOut(BuildContext context) {
@@ -62,90 +41,72 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final primaryColor = theme.primaryColor;
+    final secondaryColor = theme.colorScheme.secondary;
+
     return Scaffold(
+      extendBody: true, // Important for glassmorphism
       extendBodyBehindAppBar: true, 
-      appBar: AppBar(
-        title: ShaderMask(
+      appBar: AppBar( 
+        // Hide AppBar on Profile (2) and Settings (3) Tabs
+        toolbarHeight: _currentIndex >= 2 ? 0 : kToolbarHeight,
+        automaticallyImplyLeading: false, 
+        title: _currentIndex >= 2 ? null : ShaderMask(
           shaderCallback: (bounds) =>
-              LinearGradient(colors: [theme.primaryColor, theme.colorScheme.secondary]).createShader(bounds),
+              LinearGradient(colors: [primaryColor, secondaryColor]).createShader(bounds),
           child: const Text(
             "TeX",
             style: TextStyle(
               fontWeight: FontWeight.bold,
               letterSpacing: 1.5,
               color: Colors.white,
+              fontSize: 24,
             ),
           ),
         ),
-        actions: [
+        actions: _currentIndex >= 2 ? [] : [
           IconButton(
             onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
+               // Requests Screen
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const RequestsScreen()));
             },
-            icon: Icon(PhosphorIcons.magnifyingGlass(), color: theme.hintColor),
-          ),
-          Stack(
-            children: [
-              IconButton(
-                onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const RequestsScreen()));
-                },
-                icon: Icon(PhosphorIcons.userPlus(), color: theme.hintColor),
-              ),
-              // Optional: Add red dot if pending requests
-            ],
+            icon: Icon(PhosphorIcons.userPlus(), color: Colors.white70),
           ),
           IconButton(
             onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+               Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
             },
-            icon: Icon(
-              PhosphorIcons.gear(),
-              color: theme.hintColor,
-            ),
-          ),
-          IconButton(
-            onPressed: () => signOut(context),
-            icon: Icon(
-              PhosphorIcons.signOut(),
-              color: theme.hintColor,
-            ),
+            icon: Icon(PhosphorIcons.magnifyingGlass(), color: Colors.white70),
           ),
         ],
         backgroundColor: Colors.transparent,
         elevation: 0,
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: theme.primaryColor,
-          labelColor: theme.primaryColor,
-          unselectedLabelColor: theme.hintColor,
-          tabs: const [
-            Tab(text: "CHATS"),
-            Tab(text: "GROUPS"),
-          ],
+      ),
+      // FAB only on Chats (0) and Groups (1)
+      floatingActionButton: _currentIndex >= 2 ? null : FloatingActionButton(
+        onPressed: () {
+             Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
+        },
+        backgroundColor: primaryColor,
+         elevation: 10,
+         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+           width: 60, height: 60,
+           decoration: BoxDecoration(
+             shape: BoxShape.circle,
+             gradient: LinearGradient(colors: [primaryColor, secondaryColor]),
+           ),
+           child: Icon(PhosphorIcons.plus(), color: Colors.white)
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // If on Chats tab, maybe standard search? If Groups tab, create group?
-          // For simplicity, let's just create group for now or handle both.
-          if (_tabController.index == 1) {
-             Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
-          } else {
-            // Standard generic FAB or just nothing for Chats as list is already there
-             Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen())); // Allow creating group from anywhere
-          }
-        },
-        backgroundColor: theme.primaryColor,
-        child: Icon(PhosphorIcons.plus(), color: Colors.white),
-      ),
+      bottomNavigationBar: _buildStylishBottomNav(theme),
       body: Container(
          decoration: BoxDecoration(
           color: theme.scaffoldBackgroundColor,
         ),
         child: Stack(
           children: [
-             // Ambient Gradients
+             // Global Ambient Gradients
             Positioned(
               top: -100,
               right: -100,
@@ -154,10 +115,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 height: 300,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: theme.primaryColor.withOpacity(0.2),
+                  color: primaryColor.withOpacity(0.15),
                   boxShadow: [
                     BoxShadow(
-                      color: theme.primaryColor.withOpacity(0.2),
+                      color: primaryColor.withOpacity(0.2),
                       blurRadius: 100,
                       spreadRadius: 50,
                     ),
@@ -165,28 +126,150 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
               ),
             ),
-            SafeArea(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildUserList(),
-                  _buildGroupList(),
-                ],
+             Positioned(
+              bottom: -50,
+              left: -50,
+              child: Container(
+                width: 250,
+                height: 250,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: secondaryColor.withOpacity(0.1),
+                  boxShadow: [
+                    BoxShadow(
+                      color: secondaryColor.withOpacity(0.1),
+                      blurRadius: 100,
+                      spreadRadius: 60,
+                    ),
+                  ],
+                ),
               ),
+            ),
+            
+            // Content
+            PageView(
+              controller: _pageController,
+              onPageChanged: (index) {
+                setState(() => _currentIndex = index);
+              },
+              physics: const NeverScrollableScrollPhysics(), // Disable swipe
+              children: [
+                _buildUserList(theme),         // 0: Chats
+                _buildGroupList(theme),        // 1: Groups
+                _buildProfileTab(),       // 2: Profile
+                _buildSettingsTab(),      // 3: Settings
+              ],
             ),
           ],
         ),
       ),
     );
   }
+  
+  // Custom Stylish Bottom Nav
+  Widget _buildStylishBottomNav(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
+      height: 70,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(35),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 5),
+          )
+        ]
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(35),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildNavItem(0, PhosphorIcons.chatTeardropText(), "Chats", theme),
+              _buildNavItem(1, PhosphorIcons.usersThree(), "Groups", theme),
+              _buildNavItem(2, PhosphorIcons.user(), "Profile", theme),
+              _buildNavItem(3, PhosphorIcons.gear(), "Settings", theme),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem(int index, IconData icon, String label, ThemeData theme) {
+    bool isSelected = _currentIndex == index;
+    final primaryColor = theme.primaryColor;
+    
+    return GestureDetector(
+      onTap: () {
+        setState(() => _currentIndex = index);
+        _pageController.jumpToPage(index);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Slightly reduced padding
+        decoration: isSelected 
+            ? BoxDecoration(
+                color: primaryColor.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: primaryColor.withOpacity(0.5))
+              )
+            : const BoxDecoration(color: Colors.transparent),
+        child: Row(
+          children: [
+            Icon(
+              icon, 
+              color: isSelected ? primaryColor : Colors.white54,
+              size: 24,
+            ),
+            if (isSelected) ...[
+               const SizedBox(width: 8),
+               Text(
+                 label, 
+                 style: const TextStyle(
+                   color: Colors.white, 
+                   fontWeight: FontWeight.bold,
+                   fontSize: 12
+                 )
+               )
+            ]
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // Profile Tab Wrapper
+  Widget _buildProfileTab() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return const SizedBox();
+    
+    // Just return ProfileScreen with back button hidden
+    return ProfileScreen(
+      userId: user.uid, 
+      isSelf: true, 
+      showBackButton: false
+    );
+  }
+
+  // Settings Tab Wrapper
+  Widget _buildSettingsTab() {
+     return const SettingsScreen(isTab: true);
+  }
+
 
   // --- 1. CHATS LIST (FRIENDS ONLY) ---
-  Widget _buildUserList() {
+  Widget _buildUserList(ThemeData theme) {
     return Consumer<AuthService>(
       builder: (context, authService, child) {
         final currentUserModel = authService.currentUserModel;
         if (currentUserModel == null) {
-          return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
+          return Center(child: CircularProgressIndicator(color: theme.primaryColor));
         }
         
         if (currentUserModel.friends.isEmpty) {
@@ -194,10 +277,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text("No friends yet.", style: TextStyle(color: Theme.of(context).hintColor)),
+                const Text("No friends yet.", style: TextStyle(color: Colors.white54)),
                 TextButton(
                   onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
-                  child: Text("Find Friends", style: TextStyle(color: Theme.of(context).primaryColor)),
+                  child: Text("Find Friends", style: TextStyle(color: theme.primaryColor)),
                 ),
               ],
             ),
@@ -205,7 +288,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         }
 
         return ListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.only(top: 100, left: 16, right: 16, bottom: 100), // Adjust for header/nav
           itemCount: currentUserModel.friends.length,
           itemBuilder: (context, index) {
             final friendUid = currentUserModel.friends[index];
@@ -213,7 +296,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               future: FirebaseFirestore.instance.collection('users').doc(friendUid).get(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const SizedBox(); // Loading or error placeholder
-                return _buildUserListItem(snapshot.data!, context);
+                return _buildUserListItem(snapshot.data!, context, theme);
               },
             );
           },
@@ -222,10 +305,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-
-
   // Helper to build list item with StreamBuilder for specific chat data (unread count)
-  Widget _buildUserListItem(DocumentSnapshot document, BuildContext context) {
+  Widget _buildUserListItem(DocumentSnapshot document, BuildContext context, ThemeData theme) {
     Map<String, dynamic> data = document.data()! as Map<String, dynamic>;
     String name = data['displayName'] ?? data['email'].split('@')[0];
     String about = data['about'] ?? "I am TeXtingg!!!!";
@@ -280,10 +361,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               height: 50,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: StellarTheme.primaryGradient,
+                // THEME-CONSISTENT GRADIENT
+                gradient: LinearGradient(
+                    colors: [theme.primaryColor, theme.colorScheme.secondary],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: StellarTheme.primaryNeon.withOpacity(0.3),
+                    color: theme.primaryColor.withOpacity(0.3),
                     blurRadius: 8,
                   ),
                 ],
@@ -327,8 +413,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             trailing: hasUnread 
                 ? Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(
-                      color: StellarTheme.primaryNeon,
+                    decoration: BoxDecoration(
+                      color: theme.primaryColor,
                       shape: BoxShape.circle,
                     ),
                     child: Text(
@@ -344,11 +430,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   // --- 2. GROUPS LIST (with Invitations) ---
-  Widget _buildGroupList() {
+  Widget _buildGroupList(ThemeData theme) {
     final ChatService chatService = ChatService();
     
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.only(top: 100, left: 16, right: 16, bottom: 100),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -361,16 +447,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4),
                     child: Text(
                       "INVITATIONS",
-                      style: TextStyle(color: StellarTheme.primaryNeon, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                      style: TextStyle(color: theme.primaryColor, fontWeight: FontWeight.bold, letterSpacing: 1.2),
                     ),
                   ),
                   ...snapshot.data!.docs.map((doc) {
                       Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-                      return _buildInvitationCard(doc.id, data, chatService);
+                      return _buildInvitationCard(doc.id, data, chatService, theme);
                   }).toList(),
                   const SizedBox(height: 20),
                   const Padding(
@@ -391,7 +477,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             builder: (context, snapshot) {
                if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.white)));
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon));
+                return Center(child: CircularProgressIndicator(color: theme.primaryColor));
               }
 
               final docs = snapshot.data!.docs;
@@ -421,7 +507,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         onPressed: () {
                            Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
                         }, 
-                        child: const Text("Create One", style: TextStyle(color: StellarTheme.primaryNeon))
+                        child: Text("Create One", style: TextStyle(color: theme.primaryColor))
                       )
                     ],
                   ),
@@ -429,7 +515,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               }
 
               return Column(
-                children: docs.map((doc) => _buildGroupCard(doc, context)).toList(),
+                children: docs.map((doc) => _buildGroupCard(doc, context, theme)).toList(),
               );
             },
           ),
@@ -438,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildInvitationCard(String groupId, Map<String, dynamic> data, ChatService chatService) {
+  Widget _buildInvitationCard(String groupId, Map<String, dynamic> data, ChatService chatService, ThemeData theme) {
       String groupName = data['name'] ?? "Group";
       String description = data['description'] ?? "";
       // Ideally show 'Created by...' but we only have ID. For now just show invites.
@@ -446,17 +532,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       return Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
-          color: StellarTheme.primaryNeon.withOpacity(0.1),
+          color: theme.primaryColor.withOpacity(0.1),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: StellarTheme.primaryNeon.withOpacity(0.3)),
+          border: Border.all(color: theme.primaryColor.withOpacity(0.3)),
         ),
         child: ListTile(
           leading: Container(
              width: 50, height: 50,
-             decoration: const BoxDecoration(
+             decoration: BoxDecoration(
                shape: BoxShape.circle,
-               // Updated gradient: Pink and Black
-               gradient: LinearGradient(colors: [Colors.black, StellarTheme.primaryNeon]),
+               // Updated gradient: Theme Colors
+               gradient: LinearGradient(colors: [theme.primaryColor, theme.colorScheme.secondary]),
              ),
              child: Icon(PhosphorIcons.usersThree(), color: Colors.white),
           ),
@@ -515,7 +601,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
      );
   }
 
-  Widget _buildGroupCard(DocumentSnapshot doc, BuildContext context) {
+  Widget _buildGroupCard(DocumentSnapshot doc, BuildContext context, ThemeData theme) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     String groupName = data['name'] ?? "Group";
     Map<String, dynamic> recentMsg = data['recentMessage'] ?? {};
@@ -554,15 +640,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           height: 50,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            // Updated gradient: Pink and Black Glow (Simulated with Dark + Pink)
-            gradient: const LinearGradient(
-              colors: [Colors.black, StellarTheme.primaryNeon], 
+            // THEME-CONSISTENT GRADIENT
+            gradient: LinearGradient(
+              colors: [theme.primaryColor, theme.colorScheme.secondary], 
               begin: Alignment.topLeft, 
               end: Alignment.bottomRight
             ),
             boxShadow: [
               BoxShadow(
-                color: StellarTheme.primaryNeon.withOpacity(0.4),
+                color: theme.colorScheme.secondary.withOpacity(0.4),
                 blurRadius: 10,
               ),
             ],
@@ -590,8 +676,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         trailing: hasUnread 
             ? Container(
                 padding: const EdgeInsets.all(8),
-                decoration: const BoxDecoration(
-                  color: StellarTheme.primaryNeon,
+                decoration: BoxDecoration(
+                  color: theme.primaryColor,
                   shape: BoxShape.circle,
                 ),
                 child: Text(

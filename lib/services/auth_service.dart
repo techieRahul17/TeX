@@ -319,4 +319,67 @@ class AuthService extends ChangeNotifier {
     }
     await _auth.signOut();
   }
+  // --- Phone Number Verification ---
+
+  Future<void> verifyPhoneNumber({
+    required String phoneNumber,
+    required Function(String, int?) codeSent,
+    required Function(FirebaseAuthException) verificationFailed,
+    required Function(String) codeAutoRetrievalTimeout,
+  }) async {
+    await _auth.verifyPhoneNumber(
+      phoneNumber: phoneNumber,
+      verificationCompleted: (PhoneAuthCredential credential) async {
+        // Auto-resolution (Android mostly)
+        // We can choose to update immediately or let the UI handle it.
+        // For security, usually we just let the credential be passed back or update here.
+        // But the UI needs to know.
+        // We will just let the user manually enter code or handle auto-complete if we implement that callback.
+        // For now, simpler flow:
+        await _updateUserPhoneNumber(credential);
+      },
+      verificationFailed: verificationFailed,
+      codeSent: codeSent,
+      codeAutoRetrievalTimeout: codeAutoRetrievalTimeout,
+    );
+  }
+
+  Future<void> verifyOTP({
+    required String verificationId,
+    required String smsCode,
+  }) async {
+    PhoneAuthCredential credential = PhoneAuthProvider.credential(
+      verificationId: verificationId,
+      smsCode: smsCode,
+    );
+    await _updateUserPhoneNumber(credential);
+  }
+
+  Future<void> _updateUserPhoneNumber(PhoneAuthCredential credential) async {
+    final user = _auth.currentUser;
+    if (user != null) {
+      try {
+        // Link or Update? Update is better for clean profile.
+        // But if we used e-mail to sign in, we just link phone.
+        // Note: updatePhoneNumber replaces the phone number.
+        await user.updatePhoneNumber(credential);
+        
+        // Also update Firestore here to be in sync?
+        // updateProfile handles Firestore, but this handles Auth.
+        // We should do both to be safe, or let the caller call updateProfile.
+        // The implementation plan said "verifyOTP" then "save profile".
+        // If we update auth here, we need to ensure Firestore matches.
+        
+        await _firestore.collection('users').doc(user.uid).update({
+          'phoneNumber': user.phoneNumber, // Use value from updated auth user
+        });
+        
+        // Refresh local model
+        // await _fetchCurrentUserModel(); // Stream
+      } catch (e) {
+        throw Exception("Phone update failed: $e");
+      }
+    }
+  }
+
 }

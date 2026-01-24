@@ -18,6 +18,9 @@ class ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final defaultColor = theme.primaryColor;
+    
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
@@ -25,8 +28,8 @@ class ChatBubble extends StatelessWidget {
         gradient: isSender
             ? LinearGradient(
                 colors: [
-                  color ?? StellarTheme.primaryNeon, 
-                  (color ?? StellarTheme.primaryNeon).withOpacity(0.7)
+                  color ?? defaultColor, 
+                  (color ?? defaultColor).withOpacity(0.7)
                 ],
                 begin: Alignment.bottomLeft,
                 end: Alignment.topRight,
@@ -48,7 +51,7 @@ class ChatBubble extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: isSender
-                ? (color ?? StellarTheme.primaryNeon).withOpacity(0.3)
+                ? (color ?? defaultColor).withOpacity(0.3)
                 : Colors.white.withOpacity(0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),

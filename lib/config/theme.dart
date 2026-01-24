@@ -48,6 +48,7 @@ class StellarTheme {
       brightness: Brightness.dark,
       scaffoldBackgroundColor: option.colors.first, // Use wallpaper background or default black
       primaryColor: option.accentColor,
+      cardColor: option.colors.length > 1 ? option.colors[1] : surface, // Dynamic Card Color
       colorScheme: ColorScheme.dark(
         primary: option.accentColor,
         secondary: option.accentColor.withOpacity(0.8),
