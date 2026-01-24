@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:texting/config/theme.dart';
 import 'package:texting/config/wallpapers.dart';
@@ -19,6 +20,7 @@ import '../services/encryption_service.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart' as emoji; 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:giphy_picker/giphy_picker.dart'; 
+import 'package:url_launcher/url_launcher.dart';
 // import 'dart:io'; // Removed for Web compatibility
 import 'package:flutter/foundation.dart'; // For defaultTargetPlatform and kIsWeb
 
@@ -50,6 +52,7 @@ class _ChatScreenState extends State<ChatScreen> {
   // Privacy State (1-on-1 only)
   bool _isReceiverOnlineHidden = false;
   String? _receiverPublicKey;
+  String? _receiverPhoneNumber; // Phone number for SMS fallback
   bool _isLoadingKey = true;
   
   // Group State
@@ -73,7 +76,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!widget.isGroup) {
       _checkReceiverPrivacy();
       _markAsRead();
-      _loadReceiverKey();
+      _loadReceiverData();
     } else {
       _loadGroupKey();
     }
@@ -83,6 +86,28 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _focusNode.dispose();
     super.dispose();
+  }
+
+  // Changed from _loadReceiverKey to _loadReceiverData
+  Future<void> _loadReceiverData() async {
+    try {
+       final doc = await FirebaseFirestore.instance.collection('users').doc(widget.receiverUserID).get();
+       if (doc.exists) {
+         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+         if (mounted) {
+           setState(() {
+             _receiverPublicKey = data['publicKey'];
+             _receiverPhoneNumber = data['phoneNumber'];
+             _isLoadingKey = false;
+           });
+         }
+       } else {
+         if (mounted) setState(() => _isLoadingKey = false);
+       }
+    } catch (e) {
+      debugPrint("Error loading receiver data: $e");
+      if (mounted) setState(() => _isLoadingKey = false);
+    }
   }
 
   void _onEmojiSelected(emoji.Category? category, emoji.Emoji em) {
@@ -151,20 +176,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _loadReceiverKey() async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(widget.receiverUserID).get();
-      if (doc.exists) {
-        setState(() {
-          _receiverPublicKey = doc.data()?['publicKey'];
-          _isLoadingKey = false;
-        });
-      }
-    } catch (e) {
-      debugPrint("Error loading public key: $e");
-      setState(() => _isLoadingKey = false);
-    }
-  }
+
 
   Future<void> _markAsRead() async {
     if (widget.isGroup) {
@@ -688,9 +700,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               GestureDetector(
                 onLongPress: () {
-                   if (widget.isGroup) {
-                      _showMessageInfo(context, data, document.id);
-                   }
+                   _showMessageOptions(context, data, document.id, isSender, messageText);
                 },
                 child: Column(
                   crossAxisAlignment: isSender ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -707,7 +717,12 @@ class _ChatScreenState extends State<ChatScreen> {
                                color: Colors.white10, 
                                child: const Center(child: CircularProgressIndicator(color: StellarTheme.primaryNeon))
                              ),
-                             errorWidget: (context, url, _) => ChatBubble(message: messageText, isSender: isSender, color: wallpaper.bubbleColor),
+                             errorWidget: (context, url, _) => ChatBubble(
+                               message: messageText, 
+                               isSender: isSender, 
+                               color: wallpaper.bubbleColor,
+                               isStarred: (data['starredBy'] as List?)?.contains(_auth.currentUser!.uid) ?? false,
+                             ),
                              width: 200,
                              fit: BoxFit.cover,
                           ),
@@ -718,17 +733,23 @@ class _ChatScreenState extends State<ChatScreen> {
                         message: messageText,
                         isSender: isSender,
                         color: wallpaper.bubbleColor,
+                        isStarred: (data['starredBy'] as List?)?.contains(_auth.currentUser!.uid) ?? false,
                       ),
                     
-                    // 1-on-1 Read Status
-                    if (!widget.isGroup && isSender)
+                    // Message Status Indicator
+                    if (isSender)
                       Padding(
                         padding: const EdgeInsets.only(right: 8, top: 2),
-                        child: Icon(
-                          Icons.done_all,
-                          size: 16,
-                          color: (data['isRead'] ?? false) ? StellarTheme.primaryNeon : Colors.white30,
-                        ),
+                        child: document.metadata.hasPendingWrites 
+                            ? const Icon(Icons.access_time, size: 12, color: Colors.white54)
+                            : (!widget.isGroup 
+                                ? Icon(
+                                    Icons.done_all,
+                                    size: 16,
+                                    color: (data['isRead'] ?? false) ? StellarTheme.primaryNeon : Colors.white30,
+                                  )
+                                : const SizedBox.shrink() // Group chats don't show ticks on list yet (only info)
+                              ),
                       ),
                   ],
                 ),
@@ -740,6 +761,104 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       }
+    );
+  }
+
+  void _showMessageOptions(BuildContext context, Map<String, dynamic> data, String messageId, bool isSender, String messageText) {
+    bool isStarred = (data['starredBy'] as List?)?.contains(_auth.currentUser!.uid) ?? false;
+    
+    showModalBottomSheet(
+      context: context, 
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: StellarTheme.cardColor,
+          borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Star / Unstar
+            ListTile(
+              leading: Icon(
+                isStarred ? Icons.star : Icons.star_border, 
+                color: isStarred ? Colors.yellowAccent : Colors.white
+              ),
+              title: Text(isStarred ? "Unstar" : "Star", style: const TextStyle(color: Colors.white)),
+              onTap: () async {
+                Navigator.pop(context);
+                try {
+                   if (widget.isGroup) {
+                      await _chatService.toggleMessageStar(widget.receiverUserID, messageId, true);
+                   } else {
+                      // 1-on-1: Need to reconstruct chatRoomId
+                      List<String> ids = [_auth.currentUser!.uid, widget.receiverUserID];
+                      ids.sort();
+                      String chatRoomId = ids.join("_");
+                      await _chatService.toggleMessageStar(chatRoomId, messageId, false);
+                   }
+                } catch (e) {
+                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Action failed: $e")));
+                }
+              },
+            ),
+            // Copy
+            ListTile(
+               leading: const Icon(Icons.copy, color: Colors.white),
+               title: const Text("Copy", style: TextStyle(color: Colors.white)),
+               onTap: () async {
+                 Navigator.pop(context);
+                 await Clipboard.setData(ClipboardData(text: messageText));
+                 if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Message copied to clipboard")),
+                    );
+                 }
+                },
+             ),
+             // Send as SMS (Offline Fallback)
+             if (_receiverPhoneNumber != null && _receiverPhoneNumber!.isNotEmpty)
+               ListTile(
+                 leading: const Icon(Icons.sms, color: Colors.greenAccent),
+                 title: const Text("Send as SMS", style: TextStyle(color: Colors.white)),
+                 onTap: () async {
+                   Navigator.pop(context);
+                   try {
+                     final Uri smsUri = Uri(
+                       scheme: 'sms',
+                       path: _receiverPhoneNumber,
+                       queryParameters: <String, String>{
+                         'body': messageText,
+                       },
+                     );
+                     
+                     if (await canLaunchUrl(smsUri)) {
+                       await launchUrl(smsUri);
+                     } else {
+                        // Try launching without check (Android 11+ visibility issue)
+                        await launchUrl(smsUri);
+                     }
+                   } catch (e) {
+                     if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Could not launch SMS: $e")));
+                     }
+                   }
+                 },
+               ),
+              // Group Info (Originally was the only option)
+             if (widget.isGroup)
+               ListTile(
+                 leading: const Icon(Icons.info_outline, color: Colors.white),
+                 title: const Text("Message Info", style: TextStyle(color: Colors.white)),
+                 onTap: () {
+                   Navigator.pop(context);
+                   _showMessageInfo(context, data, messageId);
+                 },
+               ),
+          ],
+        ),
+      )
     );
   }
 

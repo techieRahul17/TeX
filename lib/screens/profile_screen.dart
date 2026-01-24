@@ -37,6 +37,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _funFactController = TextEditingController();
   final TextEditingController _skillController = TextEditingController();
   final TextEditingController _hobbyController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
 
   List<String> _skills = [];
   List<String> _hobbies = [];
@@ -64,6 +65,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _originalUsername = data['username'];
         _aboutController.text = data['about'] ?? '';
         _funFactController.text = data['funFact'] ?? '';
+        _phoneController.text = data['phoneNumber'] ?? '';
         _skills = List<String>.from(data['skills'] ?? []);
         _hobbies = List<String>.from(data['hobbies'] ?? []);
       });
@@ -91,6 +93,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         name: _nameController.text,
         about: _aboutController.text,
         funFact: _funFactController.text,
+        phoneNumber: _phoneController.text,
         skills: _skills,
         hobbies: _hobbies,
       );
@@ -368,6 +371,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               StellarTextField(controller: _funFactController, hintText: "What makes you unique?", obscureText: false)
                             else
                               Text(_funFactController.text.isEmpty ? "-" : _funFactController.text, style: const TextStyle(color: Colors.white70, fontSize: 16, fontStyle: FontStyle.italic)),
+
+                            // PHONE NUMBER (Private or Public depending on need, but required for SMS)
+                            if (_isEditing || widget.isSelf) ...[
+                               _buildSectionTitle("Phone Number (For Offline SMS)", PhosphorIcons.phone()),
+                               if (_isEditing)
+                                 StellarTextField(controller: _phoneController, hintText: "+1234567890", obscureText: false)
+                               else
+                                 Text(_phoneController.text.isEmpty ? "Not set" : _phoneController.text, style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                            ],
 
                             // SKILLS
                             _buildSectionTitle("Skills", PhosphorIcons.lightning()),
