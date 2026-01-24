@@ -57,3 +57,4 @@ macos/Runner/GoogleService-Info.plist
 # Web secrets only (NOT index.html)
 # =====================
 web/firebase-config.js
+lib/config/secrets.dart
