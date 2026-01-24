@@ -6,12 +6,14 @@ class ChatBubble extends StatelessWidget {
   final String message;
   final bool isSender;
   final Color? color;
+  final bool isStarred; // Added isStarred
 
   const ChatBubble({
     super.key,
     required this.message,
     required this.isSender,
     this.color,
+    this.isStarred = false, // Default false
   });
 
   @override
@@ -57,14 +59,28 @@ class ChatBubble extends StatelessWidget {
           width: 0.5,
         ),
       ),
-      child: Text(
-        message,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 16,
-          fontWeight: FontWeight.w400,
-        ),
-      ),
+      child: Column(
+        crossAxisAlignment: isSender ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          Text(
+            message,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          if (isStarred)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Icon(
+                Icons.star,
+                size: 12,
+                color: isSender ? Colors.white.withOpacity(0.9) : Colors.yellowAccent,
+              ),
+            ),
+        ],
+      )
     ).animate().fade(duration: 300.ms).slideX(
           begin: isSender ? 1 : -1,
           end: 0,

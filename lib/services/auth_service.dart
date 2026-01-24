@@ -281,6 +281,7 @@ class AuthService extends ChangeNotifier {
     List<String>? skills,
     List<String>? hobbies,
     String? funFact,
+    String? phoneNumber, // Added phoneNumber
     bool? isOnlineHidden,
     bool? isReadReceiptsEnabled,
     String? globalWallpaperId,
@@ -291,6 +292,7 @@ class AuthService extends ChangeNotifier {
     if (skills != null) data['skills'] = skills;
     if (hobbies != null) data['hobbies'] = hobbies;
     if (funFact != null) data['funFact'] = funFact;
+    if (phoneNumber != null) data['phoneNumber'] = phoneNumber; // Save phoneNumber
     if (isOnlineHidden != null) data['isOnlineHidden'] = isOnlineHidden;
     if (isReadReceiptsEnabled != null) data['isReadReceiptsEnabled'] = isReadReceiptsEnabled;
     if (globalWallpaperId != null) data['globalWallpaperId'] = globalWallpaperId;

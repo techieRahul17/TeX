@@ -7,6 +7,7 @@ import 'package:texting/config/theme.dart';
 import 'package:texting/config/wallpapers.dart';
 import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/services/auth_service.dart';
+import 'package:texting/screens/starred_messages_screen.dart';
 import 'package:glassmorphism/glassmorphism.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -204,6 +205,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Icon(PhosphorIcons.userCircle(), color: Colors.white),
                               const SizedBox(width: 12),
                               const Text("Edit Profile Details", style: TextStyle(color: Colors.white, fontSize: 16)),
+                              const Spacer(),
+                              Icon(PhosphorIcons.caretRight(), color: Colors.white70),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+                                        
+                    // Starred Messages
+                    GestureDetector(
+                      onTap: () {
+                         Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen()));
+                      },
+                      child: GlassmorphicContainer(
+                        width: double.infinity,
+                        height: 60,
+                        borderRadius: 16,
+                        blur: 20,
+                        alignment: Alignment.center,
+                        border: 1,
+                        linearGradient: StellarTheme.glassGradient,
+                        borderGradient: LinearGradient(
+                          colors: [
+                            Colors.white.withOpacity(0.2),
+                            Colors.white.withOpacity(0.05),
+                          ],
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.star, color: Colors.yellowAccent),
+                              const SizedBox(width: 12),
+                              const Text("Starred Messages", style: TextStyle(color: Colors.white, fontSize: 16)),
                               const Spacer(),
                               Icon(PhosphorIcons.caretRight(), color: Colors.white70),
                             ],

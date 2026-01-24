@@ -564,6 +564,53 @@ class ChatService extends ChangeNotifier {
     }
   }
 
+  // STAR / UNSTAR MESSAGE
+  Future<void> toggleMessageStar(String chatRoomId, String messageId, bool isGroup) async {
+    final String currentUserId = _auth.currentUser!.uid;
+
+    DocumentReference messageRef;
+    if (isGroup) {
+      messageRef = _firestore
+          .collection('groups')
+          .doc(chatRoomId)
+          .collection('messages')
+          .doc(messageId);
+    } else {
+      messageRef = _firestore
+          .collection('chat_rooms')
+          .doc(chatRoomId)
+          .collection('messages')
+          .doc(messageId);
+    }
+
+    final docSnapshot = await messageRef.get();
+    if (docSnapshot.exists) {
+      List<dynamic> starredBy = (docSnapshot.data() as Map<String, dynamic>)['starredBy'] ?? [];
+      
+      if (starredBy.contains(currentUserId)) {
+        // Unstar
+        await messageRef.update({
+          'starredBy': FieldValue.arrayRemove([currentUserId]),
+        });
+      } else {
+        // Star
+        await messageRef.update({
+          'starredBy': FieldValue.arrayUnion([currentUserId]),
+        });
+      }
+    }
+  }
+
+  // GET ALL STARRED MESSAGES STREAM (Collection Group)
+  Stream<QuerySnapshot> getStarredMessagesStream() {
+    final String currentUserId = _auth.currentUser!.uid;
+    return _firestore
+        .collectionGroup('messages')
+        .where('starredBy', arrayContains: currentUserId)
+        .orderBy('timestamp', descending: true)
+        .snapshots();
+  }
+
   // UPDATE CHAT WALLPAPER
   Future<void> updateChatWallpaper(String chatId, String wallpaperId) async {
     final String currentUserId = _auth.currentUser!.uid;

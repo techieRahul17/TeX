@@ -15,7 +15,9 @@ class UserModel {
   final Timestamp lastSeen;
   final bool isProfileComplete;
   final bool isReadReceiptsEnabled;
+
   final String? publicKey;
+  final String? phoneNumber;
   final Map<String, String> chatWallpapers;
   final String? globalWallpaperId;
 
@@ -34,7 +36,9 @@ class UserModel {
     required this.lastSeen,
     required this.isProfileComplete,
     required this.isReadReceiptsEnabled,
+
     this.publicKey,
+    this.phoneNumber,
     this.chatWallpapers = const {},
     this.globalWallpaperId,
   });
@@ -55,7 +59,9 @@ class UserModel {
       'lastSeen': lastSeen,
       'isProfileComplete': isProfileComplete,
       'isReadReceiptsEnabled': isReadReceiptsEnabled,
+
       'publicKey': publicKey,
+      'phoneNumber': phoneNumber,
       'chatWallpapers': chatWallpapers,
       'globalWallpaperId': globalWallpaperId,
     };
@@ -78,6 +84,7 @@ class UserModel {
       isProfileComplete: map['isProfileComplete'] ?? false,
       isReadReceiptsEnabled: map['isReadReceiptsEnabled'] ?? true, // Default true
       publicKey: map['publicKey'],
+      phoneNumber: map['phoneNumber'],
       chatWallpapers: Map<String, String>.from(map['chatWallpapers'] ?? {}),
       globalWallpaperId: map['globalWallpaperId'],
     );
@@ -99,6 +106,7 @@ class UserModel {
     bool? isProfileComplete,
     bool? isReadReceiptsEnabled,
     String? publicKey,
+    String? phoneNumber,
     String? globalWallpaperId,
   }) {
     return UserModel(
@@ -117,6 +125,7 @@ class UserModel {
       isProfileComplete: isProfileComplete ?? this.isProfileComplete,
       isReadReceiptsEnabled: isReadReceiptsEnabled ?? this.isReadReceiptsEnabled,
       publicKey: publicKey ?? this.publicKey,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
       chatWallpapers: chatWallpapers ?? this.chatWallpapers,
       globalWallpaperId: globalWallpaperId ?? this.globalWallpaperId,
     );
