@@ -14,6 +14,7 @@ import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
 import 'package:texting/screens/search_screen.dart';
 import 'package:texting/screens/requests_screen.dart';
+import 'package:texting/screens/tex_work_screen.dart';
 import 'package:texting/services/encryption_service.dart';
 import 'package:texting/models/user_model.dart';
 
@@ -77,6 +78,12 @@ class _HomeScreenState extends State<HomeScreen> {
                Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
             },
             icon: Icon(PhosphorIcons.magnifyingGlass(), color: Colors.white70),
+          ),
+          IconButton(
+            onPressed: () {
+               Navigator.push(context, MaterialPageRoute(builder: (_) => const TeXWorkScreen()));
+            },
+            icon: Icon(PhosphorIcons.briefcase(), color: Colors.blueAccent), // Work icon
           ),
         ],
         backgroundColor: Colors.transparent,
@@ -296,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen> {
               future: FirebaseFirestore.instance.collection('users').doc(friendUid).get(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const SizedBox(); // Loading or error placeholder
-                return _buildUserListItem(snapshot.data!, context, theme);
+                return _buildUserListItem(snapshot.data!, context, theme, currentUserModel.uid);
               },
             );
           },
@@ -306,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Helper to build list item with StreamBuilder for specific chat data (unread count)
-  Widget _buildUserListItem(DocumentSnapshot document, BuildContext context, ThemeData theme) {
+  Widget _buildUserListItem(DocumentSnapshot document, BuildContext context, ThemeData theme, String currentUserId) {
     Map<String, dynamic> data = document.data()! as Map<String, dynamic>;
     String name = data['displayName'] ?? data['email'].split('@')[0];
     String about = data['about'] ?? "I am TeXtingg!!!!";
@@ -324,6 +331,8 @@ class _HomeScreenState extends State<HomeScreen> {
         int unreadCount = 0;
         String lastMsg = about;
         bool hasUnread = false;
+        bool isMe = false;
+        bool isSeen = false;
 
         if (chatSnapshot.hasData && chatSnapshot.data!.exists) {
           final chatData = chatSnapshot.data!.data() as Map<String, dynamic>;
@@ -332,6 +341,20 @@ class _HomeScreenState extends State<HomeScreen> {
              lastMsg = chatData['lastMessage'];
           }
           hasUnread = unreadCount > 0;
+          
+          // Check for Status Indicators
+          if (chatData['lastMessageSenderId'] == currentUserId) {
+             // If I sent the last message
+             int otherUnread = chatData['unreadCount_$otherUserId'] ?? 0;
+             // If other's unread count is 0, they read it? 
+             // Logic: yes, assuming we reset it correctly. 
+             // Better: Check 'isRead' on message? No, this is chat summary. 
+             // Using UnreadCount is standard approximation for "All catch up".
+             if (otherUnread == 0) {
+               isSeen = true;
+             }
+             isMe = true;
+          }
         }
 
         return Container(
@@ -411,6 +434,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               }
             ),
+
             trailing: hasUnread 
                 ? Container(
                     padding: const EdgeInsets.all(8),
@@ -423,7 +447,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ) 
-                : null,
+                : (isMe 
+                    ? Icon(
+                        Icons.done_all, 
+                        size: 18, 
+                        color: isSeen ? Colors.blueAccent : Colors.grey
+                      )
+                    : null
+                  ),
           ),
         ).animate().fadeIn().slideX();
       },

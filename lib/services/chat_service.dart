@@ -75,6 +75,7 @@ class ChatService extends ChangeNotifier {
       'lastMessage': messageContent, // Store encrypted version in preview too
       'lastMessageTime': timestamp,
       'users': ids,
+      'lastMessageSenderId': currentUserId, // For Status Indicators
       'unreadCount_$receiverId': FieldValue.increment(1),
     }, SetOptions(merge: true));
   }

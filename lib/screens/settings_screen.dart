@@ -429,7 +429,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                       ),
-                    )
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Logout Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: TextButton(
+                        onPressed: () {
+                          showDialog(
+                            context: context, 
+                            builder: (ctx) => AlertDialog(
+                              backgroundColor: theme.cardColor,
+                              title: const Text("Logout", style: TextStyle(color: Colors.white)),
+                              content: const Text("Are you sure you want to log out?", style: TextStyle(color: Colors.white70)),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx), // Cancel
+                                  child: const Text("Cancel"),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.pop(ctx); 
+                                    Provider.of<AuthService>(context, listen: false).signOut();
+                                    Navigator.of(context).popUntil((route) => route.isFirst);
+                                  },
+                                  child: const Text("Logout", style: TextStyle(color: Colors.redAccent)),
+                                )
+                              ],
+                            )
+                          );
+                        },
+                        style: TextButton.styleFrom(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          backgroundColor: Colors.redAccent.withOpacity(0.1),
+                        ),
+                        child: const Text(
+                          "Logout",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.redAccent,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 48), // Bottom padding
                   ],
                 ),
               ),
