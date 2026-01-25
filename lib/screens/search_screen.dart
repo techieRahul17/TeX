@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
 import '../models/user_model.dart';
 import 'profile_screen.dart';
+import 'chat_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -19,41 +20,73 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
-  List<UserModel> _searchResults = [];
+  List<UserModel> _friendResults = [];
+  List<UserModel> _globalResults = [];
+  List<DocumentSnapshot> _groupResults = [];
+  
   bool _isLoading = false;
 
   void _onSearchChanged(String query) {
     if (query.isEmpty) {
       setState(() {
-        _searchResults = [];
+        _friendResults = [];
+        _globalResults = [];
+        _groupResults = [];
       });
       return;
     }
-    
-    // Simple debounce could be added here
     _performSearch(query);
   }
 
   Future<void> _performSearch(String query) async {
     setState(() => _isLoading = true);
     final lowerQuery = query.toLowerCase();
+    final currentUserUid = Provider.of<AuthService>(context, listen: false).currentUser?.uid;
+    final currentUserModel = Provider.of<AuthService>(context, listen: false).currentUserModel;
 
     try {
-      // Find users where username starts with query OR displayName contains it (requires more complex search usually)
-      // For now, simple prefix search on username
-      final snapshot = await FirebaseFirestore.instance
+      // 1. Search Groups (Fetch all my groups and filter - scalable enough for typical user)
+      // Note: Indexing for 'members' arrayContains + 'name' search is complex. 
+      // Fetching all joined groups is safer and filtering locally.
+      final groupSnap = await FirebaseFirestore.instance
+          .collection('groups')
+          .where('members', arrayContains: currentUserUid)
+          .get();
+      
+      final matchedGroups = groupSnap.docs.where((doc) {
+         final data = doc.data();
+         final name = (data['name'] ?? '').toString().toLowerCase();
+         return name.contains(lowerQuery);
+      }).toList();
+
+      // 2. Search Users (Global Search)
+      final userSnap = await FirebaseFirestore.instance
           .collection('users')
           .where('searchKeywords', arrayContains: lowerQuery)
           .limit(20)
           .get();
 
-      final results = snapshot.docs
+      final allFoundUsers = userSnap.docs
           .map((doc) => UserModel.fromMap(doc.data()))
-          .where((user) => user.uid != Provider.of<AuthService>(context, listen: false).currentUser?.uid)
+          .where((user) => user.uid != currentUserUid)
           .toList();
 
+      // 3. Separation (Friends vs Global)
+      List<UserModel> friends = [];
+      List<UserModel> others = [];
+
+      for (var user in allFoundUsers) {
+        if (currentUserModel?.friends.contains(user.uid) ?? false) {
+          friends.add(user);
+        } else {
+          others.add(user);
+        }
+      }
+
       setState(() {
-        _searchResults = results;
+        _groupResults = matchedGroups;
+        _friendResults = friends;
+        _globalResults = others;
         _isLoading = false;
       });
     } catch (e) {
@@ -68,9 +101,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final currentUser = authService.currentUserModel;
 
     return Scaffold(
-      backgroundColor: Colors.black, // Dark theme base
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text("Find Friends", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+        title: Text("Search", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -101,7 +134,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   onChanged: _onSearchChanged,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    hintText: "Search by username...",
+                    hintText: "Search chats, groups, people...",
                     hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
                     border: InputBorder.none,
                     icon: Icon(PhosphorIcons.magnifyingGlass(), color: Colors.white70),
@@ -111,82 +144,178 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           
-          // Results
+          // Results List
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _searchResults.isEmpty
-                    ? Center(
-                        child: Text(
-                          _searchController.text.isEmpty
-                              ? "Search for users to add them"
-                              : "No users found",
-                          style: GoogleFonts.outfit(color: Colors.white54),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: _searchResults.length,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemBuilder: (context, index) {
-                          final user = _searchResults[index];
-                          final isFriend = currentUser?.friends.contains(user.uid) ?? false;
-                          final isSent = currentUser?.friendRequestsSent.contains(user.uid) ?? false;
-                          final isReceived = currentUser?.friendRequestsReceived.contains(user.uid) ?? false;
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_searchController.text.isEmpty)
+                           Center(
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 50),
+                              child: Text(
+                                "Search for chats, groups, or new friends",
+                                style: GoogleFonts.outfit(color: Colors.white54),
+                              ),
+                            ),
+                          ),
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12.0),
-                            child: GlassmorphicContainer(
-                              width: double.infinity,
-                              height: 80,
-                              borderRadius: 16,
-                              blur: 20,
-                              alignment: Alignment.center,
-                              border: 1,
-                              linearGradient: LinearGradient(
-                                colors: [Colors.white.withOpacity(0.08), Colors.white.withOpacity(0.03)],
+                        // Section: My Chats (Friends)
+                        if (_friendResults.isNotEmpty) ...[
+                          _buildSectionHeader("My Chats"),
+                          ..._friendResults.map((user) => _buildUserTile(user, authService, true)),
+                        ],
+
+                        // Section: My Groups
+                        if (_groupResults.isNotEmpty) ...[
+                          _buildSectionHeader("My Groups"),
+                          ..._groupResults.map((doc) => _buildGroupTile(doc)),
+                        ],
+
+                        // Section: Discover / Global
+                        if (_globalResults.isNotEmpty) ...[
+                           _buildSectionHeader("Discover People"),
+                           ..._globalResults.map((user) => _buildUserTile(user, authService, false)),
+                        ],
+                        
+                        // No Results
+                        if (_searchController.text.isNotEmpty && 
+                            _friendResults.isEmpty && 
+                            _groupResults.isEmpty && 
+                            _globalResults.isEmpty)
+                            Center(
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 50),
+                                child: Text("No results found", style: GoogleFonts.outfit(color: Colors.white30)),
                               ),
-                              borderGradient: LinearGradient(
-                                colors: [Colors.white.withOpacity(0.2), Colors.white.withOpacity(0.05)],
-                              ),
-                              child: ListTile(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(builder: (_) => ProfileScreen(userId: user.uid, isSelf: false)),
-                                  );
-                                },
-                                leading: CircleAvatar(
-                                  backgroundImage: user.photoUrl.isNotEmpty ? NetworkImage(user.photoUrl) : null,
-                                  backgroundColor: Colors.purple.shade900,
-                                  child: user.photoUrl.isEmpty
-                                      ? Text(user.displayName[0].toUpperCase(), style: const TextStyle(color: Colors.white))
-                                      : null,
-                                ),
-                                title: Text(user.displayName, style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
-                                subtitle: Text("@${user.username}", style: GoogleFonts.outfit(color: Colors.white60)),
-                                trailing: _buildActionButton(authService, user, isFriend, isSent, isReceived),
-                              ),
-                            ).animate().fadeIn().slideY(begin: 0.2, end: 0),
-                          );
-                        },
-                      ),
+                            ),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),
     );
   }
 
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          color: Colors.blueAccent, // Or theme primary
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.2
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupTile(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: GlassmorphicContainer(
+        width: double.infinity,
+        height: 70,
+        borderRadius: 16,
+        blur: 20,
+        alignment: Alignment.center,
+        border: 1,
+        linearGradient: LinearGradient(
+          colors: [Colors.white.withOpacity(0.08), Colors.white.withOpacity(0.03)],
+        ),
+        borderGradient: LinearGradient(
+          colors: [Colors.white.withOpacity(0.2), Colors.white.withOpacity(0.05)],
+        ),
+        child: ListTile(
+          onTap: () {
+             // Navigate to Chat
+             Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
+                receiverUserEmail: "",
+                receiverUserID: doc.id,
+                receiverName: data['name'] ?? "Group",
+                isGroup: true,
+             )));
+          },
+          leading: Container(
+             width: 40, height: 40,
+             decoration: const BoxDecoration(
+               shape: BoxShape.circle,
+               gradient: LinearGradient(colors: [Colors.blue, Colors.purple])
+             ),
+             child: Icon(PhosphorIcons.usersThree(), color: Colors.white, size: 20),
+          ),
+          title: Text(data['name'] ?? "Group", style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+          subtitle: Text("Group Chat", style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserTile(UserModel user, AuthService auth, bool isFriend) {
+    final isSent = auth.currentUserModel?.friendRequestsSent.contains(user.uid) ?? false;
+    final isReceived = auth.currentUserModel?.friendRequestsReceived.contains(user.uid) ?? false;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: GlassmorphicContainer(
+        width: double.infinity,
+        height: 80,
+        borderRadius: 16,
+        blur: 20,
+        alignment: Alignment.center,
+        border: 1,
+        linearGradient: LinearGradient(
+          colors: [Colors.white.withOpacity(0.08), Colors.white.withOpacity(0.03)],
+        ),
+        borderGradient: LinearGradient(
+          colors: [Colors.white.withOpacity(0.2), Colors.white.withOpacity(0.05)],
+        ),
+        child: ListTile(
+          onTap: () {
+            // Navigate to Profile first usually, or Chat if friend?
+            // "My Chats" implies clicking goes to chat.
+            if (isFriend) {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
+                  receiverUserEmail: user.email,
+                  receiverUserID: user.uid,
+                  receiverName: user.displayName,
+                  isGroup: false,
+                )));
+            } else {
+               Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => ProfileScreen(userId: user.uid, isSelf: false)),
+               );
+            }
+          },
+          leading: CircleAvatar(
+            backgroundImage: user.photoUrl.isNotEmpty ? NetworkImage(user.photoUrl) : null,
+            backgroundColor: Colors.purple.shade900,
+            child: user.photoUrl.isEmpty
+                ? Text(user.displayName[0].toUpperCase(), style: const TextStyle(color: Colors.white))
+                : null,
+          ),
+          title: Text(user.displayName, style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+          subtitle: Text("@${user.username}", style: GoogleFonts.outfit(color: Colors.white60)),
+          trailing: isFriend 
+            ? const Icon(Icons.chat_bubble_outline, color: Colors.white70) // Indicating chat
+            : _buildActionButton(auth, user, isFriend, isSent, isReceived),
+        ),
+      ).animate().fadeIn().slideY(begin: 0.2, end: 0),
+    );
+  }
+
   Widget _buildActionButton(AuthService auth, UserModel user, bool isFriend, bool isSent, bool isReceived) {
     if (isFriend) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.green.withOpacity(0.5)),
-        ),
-        child: const Text("Friend", style: TextStyle(color: Colors.green)),
-      );
+      return const SizedBox(); // Handled by tile tap
     } else if (isSent) {
       return TextButton(
         onPressed: () => auth.cancelFriendRequest(user.uid),
