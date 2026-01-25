@@ -126,7 +126,13 @@ class EncryptionService {
          // If it's just a plain string (not base64), it might be legacy or system message.
          // But for now, returning a safe placeholder is better than crashing or spamming logs.
          // debugPrint("⚠️ Decryption Warning: Old key interaction.");
-         return "🔒 Encrypted Message (Keys Rotated)";
+         
+         // Fix: If it looks like a normal message, return it. If it's truly garbage/encrypted, return placeholder.
+         // But we can't easily know. 
+         // Strategy: If we fail to decrypt, we return the content as is. 
+         // If it was ciphertext, it will look like garbage in UI, but won't be a giant Red Error.
+         // Better yet, return a cleaner "Secure Message" string if it's definitely ciphertext.
+         return encryptedContent; // Fallback to content so if it was actually plaintext it shows.
       }
       
       // Graceful Fallback: If decryption fails (e.g. it's plaintext), return original
@@ -177,7 +183,7 @@ class EncryptionService {
       return utf8.decode(clearTextBytes);
     } catch (e) {
       if (e.toString().contains("SecretBoxAuthenticationError")) {
-          return "🔒 Encrypted Group Message (Key Rotated)";
+          return encryptedContent;
       }
       // Graceful Fallback for Groups too
       return encryptedContent;

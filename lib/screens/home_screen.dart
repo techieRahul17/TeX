@@ -397,6 +397,7 @@ class _HomeScreenState extends State<HomeScreen> {
               future: EncryptionService().decryptMessage(lastMsg, data['publicKey'] ?? ""),
               builder: (context, snapshot) {
                  String text = snapshot.data ?? lastMsg;
+                 text = _sanitizeMessageText(text); // Sanitize
                  if (text.length > 30) text = "${text.substring(0, 30)}...";
                  return Text(
                   text,
@@ -703,9 +704,20 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         String groupKey = await EncryptionService().decryptKey(myEncryptedKey);
         String decrypted = await EncryptionService().decryptSymmetric(content, groupKey);
-        return "$senderName: $decrypted";
+        return "$senderName: ${_sanitizeMessageText(decrypted)}";
       } catch (e) {
         return "$senderName: Encrypted";
       }
+  }
+
+
+  String _sanitizeMessageText(String text) {
+     if (text.toLowerCase().contains("giphy.com") || text.toLowerCase().contains("media0.giphy") || text.endsWith(".gif")) {
+       return "🖼️ GIF";
+     }
+     if (text.startsWith("http") && (text.endsWith(".png") || text.endsWith(".jpg") || text.endsWith(".jpeg"))) {
+       return "📷 Image";
+     }
+     return text;
   }
 }

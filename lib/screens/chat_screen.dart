@@ -63,6 +63,12 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isEmojiVisible = false;
   final FocusNode _focusNode = FocusNode();
 
+  // Search State
+  bool _isSearching = false;
+  String _searchQuery = "";
+  final TextEditingController _searchController = TextEditingController();
+
+
   @override
   void initState() {
     super.initState();
@@ -72,6 +78,12 @@ class _ChatScreenState extends State<ChatScreen> {
           _isEmojiVisible = false;
         });
       }
+    });
+    
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.trim().toLowerCase();
+      });
     });
 
     if (!widget.isGroup) {
@@ -334,7 +346,28 @@ class _ChatScreenState extends State<ChatScreen> {
                }
             },
           ),
-          title: Row(
+          title: _isSearching 
+              ? TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  decoration: InputDecoration(
+                    hintText: "Search messages...",
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    border: InputBorder.none,
+                    suffixIcon: IconButton(
+                       icon: const Icon(Icons.close, color: Colors.white70),
+                       onPressed: () {
+                         _searchController.clear();
+                         setState(() {
+                             _isSearching = false;
+                             _searchQuery = "";
+                         });
+                       },
+                    ),
+                  ),
+                )
+              : Row(
             children: [
               GestureDetector(
                 onTap: () {
@@ -398,6 +431,15 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
             actions: [
+              if (!_isSearching)
+                IconButton(
+                  icon: const Icon(Icons.search, color: Colors.white),
+                  onPressed: () {
+                    setState(() {
+                      _isSearching = true;
+                    });
+                  },
+                ),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.white),
                 onSelected: (value) async {
@@ -701,6 +743,14 @@ class _ChatScreenState extends State<ChatScreen> {
           : _decryptMessage(data['message'], isSender),
       builder: (context, snapshot) {
         String messageText = snapshot.data ?? (snapshot.hasError ? "Encrypted Message/Error" : "...");
+        
+        // Search Filtering
+        if (_searchQuery.isNotEmpty) {
+           if (!snapshot.hasData) return const SizedBox.shrink(); // Hide pending
+           if (!messageText.toLowerCase().contains(_searchQuery)) {
+              return const SizedBox.shrink();
+           }
+        }
         
         // Final Safety Check: If message looks like raw Chacha20 ciphertext (Base64), hide it
         // A simple heuristic: long string, no spaces, ends with = or alphanumeric
