@@ -67,6 +67,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isSearching = false;
   String _searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
+  
+  // Media Menu State
+  bool _areMediaOptionsVisible = false;
 
 
   @override
@@ -177,6 +180,31 @@ class _ChatScreenState extends State<ChatScreen> {
            ),
          );
        }
+     }
+  }
+
+  Future<void> _pickSticker() async {
+     try {
+       final gif = await GiphyPicker.pickGif(
+          context: context,
+          apiKey: Secrets.giphyApiKey,
+          showPreviewPage: false,
+          sticker: true,
+       );
+
+       if (gif != null) {
+          final url = gif.images.fixedHeight?.url ?? gif.images.original?.url;
+          if (url != null) {
+             if (widget.isGroup) {
+               await _chatService.sendGroupMessage(widget.receiverUserID, url);
+             } else {
+               await _chatService.sendMessage(widget.receiverUserID, url);
+             }
+             _scrollToBottom();
+          }
+       }
+     } catch (e) {
+       debugPrint("Sticker picker error: $e");
      }
   }
 
@@ -987,29 +1015,52 @@ class _ChatScreenState extends State<ChatScreen> {
         top: false,
         child: Row(
           children: [
-            // Emoji Button
-            IconButton(
-              icon: Icon(
-                _isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined,
-                color: Colors.grey,
-              ),
-              onPressed: () {
-                setState(() {
-                  _isEmojiVisible = !_isEmojiVisible;
-                });
-                if (_isEmojiVisible) {
-                   _focusNode.unfocus();
-                   // Wait for keybaord close
-                } else {
-                   _focusNode.requestFocus();
-                }
-              },
-            ),
-             // GIF Button
-            IconButton(
-              icon: const Icon(Icons.gif_box_outlined, color: Colors.grey),
-              onPressed: _pickGif,
-            ),
+            // Media Menu Toggle (3 Dots) or Close (X)
+             IconButton(
+               icon: Icon(
+                 _areMediaOptionsVisible ? PhosphorIcons.x() : PhosphorIcons.dotsThreeVertical(), 
+                 color: Colors.grey
+               ),
+               onPressed: () {
+                 setState(() {
+                   _areMediaOptionsVisible = !_areMediaOptionsVisible;
+                   // Hide emoji picker if closing menu? Optional.
+                   if (!_areMediaOptionsVisible) _isEmojiVisible = false;
+                 });
+               },
+             ),
+             
+             // Animated Options
+             if (_areMediaOptionsVisible) ...[
+                // Sticker Button
+                IconButton(
+                  icon: Icon(PhosphorIcons.sticker(), color: Colors.blueAccent),
+                  onPressed: _pickSticker,
+                ),
+                 // GIF Button
+                IconButton(
+                  icon: const Icon(Icons.gif_box_outlined, color: Colors.purpleAccent),
+                  onPressed: _pickGif,
+                ),
+                // Emoji Button
+                IconButton(
+                  icon: Icon(
+                    _isEmojiVisible ? Icons.keyboard : Icons.emoji_emotions_outlined,
+                    color: Colors.amber,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _isEmojiVisible = !_isEmojiVisible;
+                    });
+                     if (_isEmojiVisible) {
+                       _focusNode.unfocus();
+                    } else {
+                       _focusNode.requestFocus();
+                    }
+                  },
+                ),
+             ],
+
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
