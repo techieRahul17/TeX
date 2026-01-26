@@ -16,6 +16,7 @@ import 'package:texting/screens/search_screen.dart';
 import 'package:texting/screens/requests_screen.dart';
 import 'package:texting/screens/tex_work_screen.dart';
 import 'package:texting/services/encryption_service.dart';
+import 'package:texting/screens/link_web_screen.dart';
 import 'package:texting/models/user_model.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -79,11 +80,39 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             icon: Icon(PhosphorIcons.magnifyingGlass(), color: Colors.white70),
           ),
-          IconButton(
-            onPressed: () {
-               Navigator.push(context, MaterialPageRoute(builder: (_) => const TeXWorkScreen()));
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white70),
+            color: const Color(0xFF1E1E1E),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            onSelected: (value) {
+              if (value == 'link_web') {
+                 Navigator.push(context, MaterialPageRoute(builder: (_) => const LinkWithWebScreen()));
+              } else if (value == 'work') {
+                 Navigator.push(context, MaterialPageRoute(builder: (_) => const TeXWorkScreen()));
+              }
             },
-            icon: Icon(PhosphorIcons.briefcase(), color: Colors.blueAccent), // Work icon
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'link_web',
+                child: Row(
+                  children: [
+                    Icon(PhosphorIcons.desktop(), color: Colors.white70, size: 20),
+                    SizedBox(width: 12),
+                    Text("Link with Web", style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+               PopupMenuItem(
+                value: 'work',
+                child: Row(
+                  children: [
+                    Icon(PhosphorIcons.briefcase(), color: Colors.blueAccent, size: 20),
+                    const SizedBox(width: 12),
+                    const Text("TeX Work", style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
         backgroundColor: Colors.transparent,
