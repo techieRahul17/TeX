@@ -382,4 +382,51 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  // --- Device/Web Management ---
+
+  Stream<List<Map<String, dynamic>>> getLinkedDevices() {
+    final user = _auth.currentUser;
+    if (user == null) return const Stream.empty();
+
+    return _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('sessions')
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    });
+  }
+
+  Future<void> linkDevice(String deviceId, Map<String, dynamic> deviceInfo) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    await _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('sessions')
+        .doc(deviceId)
+        .set({
+      ...deviceInfo,
+      'createdAt': FieldValue.serverTimestamp(),
+      'lastActive': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> unlinkDevice(String deviceId) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    await _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('sessions')
+        .doc(deviceId)
+        .delete();
+  }
 }
