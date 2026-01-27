@@ -32,23 +32,48 @@ class LinkWithWebScreen extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            // Ambient Background
-            Positioned(
-              top: -150,
-              right: -100,
-              child: Container(
-                width: 400,
-                height: 400,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: primaryColor.withOpacity(0.1),
-                  boxShadow: [
-                    BoxShadow(color: primaryColor.withOpacity(0.15), blurRadius: 100, spreadRadius: 50),
+            // Dynamic Animated Background
+            ...List.generate(3, (index) {
+              return Positioned.fill(
+                child: Animate(
+                  onPlay: (controller) => controller.repeat(reverse: true),
+                  effects: [
+                    MoveEffect(
+                      begin: Offset(index % 2 == 0 ? -50 : 50, index % 2 == 0 ? -50 : 50),
+                      end: Offset(index % 2 == 0 ? 50 : -50, index % 2 == 0 ? 50 : -50),
+                      duration: Duration(seconds: 4 + index * 2),
+                      curve: Curves.easeInOut,
+                    ),
                   ],
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        center: Alignment(
+                          (index == 0 ? -0.5 : (index == 1 ? 0.5 : 0)),
+                          (index == 0 ? -0.5 : (index == 1 ? 0.5 : 0.8)),
+                        ),
+                        radius: 1.5,
+                        colors: [
+                          primaryColor.withOpacity(0.15),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+            
+             // Grid Overlay for "Tech" feel
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.05,
+                child: CustomPaint(
+                  painter: GridPainter(),
                 ),
               ),
             ),
-            
+
             // Main Content
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 100, 20, 20),
@@ -56,14 +81,23 @@ class LinkWithWebScreen extends StatelessWidget {
                 children: [
                    // Header Illustration / Icon
                    Container(
-                     padding: const EdgeInsets.all(20),
+                     padding: const EdgeInsets.all(24),
                      decoration: BoxDecoration(
                        shape: BoxShape.circle,
                        color: Colors.white.withOpacity(0.05),
                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                       boxShadow: [
+                         BoxShadow(
+                           color: primaryColor.withOpacity(0.2),
+                           blurRadius: 30,
+                           spreadRadius: 5,
+                         )
+                       ]
                      ),
-                     child: Icon(PhosphorIcons.desktop(), size: 64, color: primaryColor),
-                   ).animate().scale(curve: Curves.easeOutBack),
+                     child: Icon(PhosphorIcons.desktop(), size: 60, color: primaryColor)
+                       .animate(onPlay: (c)=> c.repeat())
+                       .shimmer(duration: 2.seconds, delay: 1.seconds),
+                   ).animate().scale(curve: Curves.easeOutBack, duration: 600.ms),
                    
                    const SizedBox(height: 24),
                    
@@ -288,4 +322,26 @@ class LinkWithWebScreen extends StatelessWidget {
       ),
     ).animate().fadeIn().slideX();
   }
+}
+
+class GridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 1;
+
+    const spacing = 40.0;
+
+    for (var i = 0.0; i < size.width; i += spacing) {
+      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
+    }
+
+    for (var i = 0.0; i < size.height; i += spacing) {
+      canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
