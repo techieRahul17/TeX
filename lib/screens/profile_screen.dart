@@ -6,6 +6,7 @@ import 'package:glassmorphism/glassmorphism.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
+import 'package:texting/config/wallpapers.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
 import 'package:texting/widgets/stellar_textfield.dart';
@@ -372,49 +373,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       body: Container(
         decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor, // Dynamic Background
+          gradient: LinearGradient(
+            colors: Wallpapers.getById(Provider.of<AuthService>(context).currentUserModel?.globalWallpaperId ?? 'crimson_eclipse').colors,
+            begin: Wallpapers.getById(Provider.of<AuthService>(context).currentUserModel?.globalWallpaperId ?? 'crimson_eclipse').begin,
+            end: Wallpapers.getById(Provider.of<AuthService>(context).currentUserModel?.globalWallpaperId ?? 'crimson_eclipse').end,
+          ),
         ),
         child: Stack(
           children: [
             // Background Effects
-             Positioned(
-              top: -100,
-              right: -100,
-              child: Container(
-                width: 300,
-                height: 300,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: secondaryColor.withOpacity(0.2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: secondaryColor.withOpacity(0.2),
-                      blurRadius: 100,
-                      spreadRadius: 50,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-             Positioned(
-              bottom: -50,
-              left: -50,
-              child: Container(
-                width: 200,
-                height: 200,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: primaryColor.withOpacity(0.1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: primaryColor.withOpacity(0.1),
-                      blurRadius: 100,
-                      spreadRadius: 40,
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            // Background Effects
             
             SingleChildScrollView(
               padding: const EdgeInsets.only(top: 100, left: 16, right: 16, bottom: 40),

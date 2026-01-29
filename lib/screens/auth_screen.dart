@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:glassmorphism/glassmorphism.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
+import 'package:texting/config/wallpapers.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:texting/widgets/stellar_textfield.dart';
 
@@ -97,50 +99,15 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          color: StellarTheme.background,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: Wallpapers.options[0].colors,
+            begin: Wallpapers.options[0].begin,
+            end: Wallpapers.options[0].end,
+          ),
         ),
         child: Stack(
           children: [
-            // Ambient Gradients
-            Positioned(
-              top: -100,
-              left: -100,
-              child: Container(
-                width: 300,
-                height: 300,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: StellarTheme.primaryNeon.withOpacity(0.3),
-                  boxShadow: [
-                    BoxShadow(
-                      color: StellarTheme.primaryNeon.withOpacity(0.4),
-                      blurRadius: 100,
-                      spreadRadius: 50,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: -50,
-              right: -50,
-              child: Container(
-                width: 250,
-                height: 250,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: StellarTheme.secondaryNeon.withOpacity(0.3),
-                  boxShadow: [
-                    BoxShadow(
-                      color: StellarTheme.secondaryNeon.withOpacity(0.4),
-                      blurRadius: 100,
-                      spreadRadius: 50,
-                    ),
-                  ],
-                ),
-              ),
-            ),
             Center(
               child: SingleChildScrollView(
                 child: Padding(
@@ -161,7 +128,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             letterSpacing: 4,
                           ),
                         ),
-                      ),
+                      ).animate().fadeIn(duration: 800.ms).scale(),
                       const SizedBox(height: 8),
                       Text(
                         isLogin ? "Vanakkam da Mappla!!!" : "Create Account",
@@ -169,7 +136,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           color: StellarTheme.textSecondary,
                           fontSize: 18,
                         ),
-                      ),
+                      ).animate().fadeIn(delay: 300.ms).slideY(begin: 0.2, end: 0),
                       const SizedBox(height: 48),
 
                       // Glass Card
@@ -318,7 +285,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             ],
                           ),
                         ),
-                      ),
+                      ).animate().fadeIn(delay: 500.ms).slideY(begin: 0.1, end: 0),
                       const SizedBox(height: 24),
                       Wrap(
                         crossAxisAlignment: WrapCrossAlignment.center,
@@ -346,7 +313,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             ),
                           ),
                         ],
-                      ),
+                      ).animate().fadeIn(delay: 700.ms),
                     ],
                   ),
                 ),
