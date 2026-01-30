@@ -534,48 +534,19 @@ class _HomeScreenState extends State<HomeScreen> {
             try {
                bool didAuthenticate = await auth.authenticate(
                  localizedReason: 'Please authenticate to access Locked Chats',
-                 // Use default system behavior which includes PIN/Pattern fallback if biometrics fail
                );
                
                if (didAuthenticate) {
                   if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const LockedChatsScreen()));
+               } else {
+                 // User cancelled or failed multiple times
                }
             } catch(e) {
                debugPrint("Auth Error: $e");
-               if (e.toString().contains('NotEnrolled') || e.toString().contains('no_biometrics') || e.toString().contains('PasscodeNotSet')) {
-                  // Prompt to set up
-                  if (mounted) {
-                    showDialog(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        backgroundColor: theme.cardColor,
-                        title: const Text("Security Required", style: TextStyle(color: Colors.white)),
-                        content: const Text(
-                          "To use Locked Chats, you must set up a Screen Lock (PIN, Pattern, or Password) on your device.",
-                          style: TextStyle(color: Colors.white70)
-                        ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
-                          TextButton(
-                            onPressed: () {
-                               Navigator.pop(ctx);
-                               // Open Security Settings (Best effort)
-                               // Using permission_handler 'openAppSettings' or equivalent?
-                               // actually 'local_auth' doesn't open settings.
-                               // We can just tell them.
-                            }, 
-                            child: const Text("OK", style: TextStyle(color: Colors.blueAccent))
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-               } else {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                       SnackBar(content: Text("Authentication failed. Please try again.")),
-                    );
-                  }
+               // Fallback: Ask for App Password (if available)
+               // Determine if we should show fallback
+               if (mounted) {
+                 _showPasswordFallbackDialog(context);
                }
             }
          },
@@ -605,6 +576,64 @@ class _HomeScreenState extends State<HomeScreen> {
          ),
        ),
      );
+  }
+
+  void _showPasswordFallbackDialog(BuildContext context) {
+    TextEditingController passwordController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StellarTheme.cardColor,
+        title: const Text("Authentication Failed", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Biometric/Screen Lock is unavailable. Please enter your account password to unlock.",
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                hintText: "Password",
+                hintStyle: TextStyle(color: Colors.white54),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
+                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () async {
+               String password = passwordController.text.trim();
+               if (password.isNotEmpty) {
+                  // Verify Password using Firebase Re-Auth
+                  try {
+                    User? user = FirebaseAuth.instance.currentUser;
+                    if (user != null && user.email != null) {
+                       AuthCredential credential = EmailAuthProvider.credential(email: user.email!, password: password);
+                       await user.reauthenticateWithCredential(credential);
+                       Navigator.pop(ctx); // Close Dialog
+                       if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const LockedChatsScreen()));
+                    } else {
+                       ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text("No email found for user.")));
+                    }
+                  } catch (e) {
+                     debugPrint("Password verification failed: $e");
+                     ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text("Incorrect password.")));
+                  }
+               }
+            }, 
+            child: const Text("Unlock", style: TextStyle(color: Colors.blueAccent))
+          ),
+        ],
+      ),
+    );
   }
 
   // --- 2. GROUPS LIST (with Invitations) ---
