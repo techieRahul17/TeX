@@ -517,40 +517,68 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildLockedChatsButton(ThemeData theme, int count) {
      return GestureDetector(
-       onTap: () async {
-          // Authenticate
-          try {
-             bool didAuthenticate = await auth.authenticate(
-               localizedReason: 'Please authenticate to view locked chats',
-               // options argument was removed in this version, parameters are direct.
-               // stickyAuth was renamed to persistAcrossBackgrounding (if available, otherwise rely on default)
-               // Note: Some versions might not even have persistAcrossBackgrounding exposed directly if it's default?
-               // Let's try to verify if I can just omit it if I'm unsure, but sticky behavior is nice.
-               // However, to be "Error Free", removing it is safer than guessing if I can't verify.
-               // But User wants "Perfect". 
-               // Search result was strong about rename.
+         onTap: () async {
+            // Check if device supports custom local auth or if we should fallback
+            bool canCheckBiometrics = await auth.canCheckBiometrics;
+            bool isDeviceSupported = await auth.isDeviceSupported();
+
+            if (!isDeviceSupported && !canCheckBiometrics) {
+               if (mounted) {
+                 ScaffoldMessenger.of(context).showSnackBar(
+                   const SnackBar(content: Text("Secure authentication is not available on this device.")),
+                 );
+               }
+               return;
+            }
+
+            try {
+               bool didAuthenticate = await auth.authenticate(
+                 localizedReason: 'Please authenticate to access Locked Chats',
+                 // Use default system behavior which includes PIN/Pattern fallback if biometrics fail
+               );
                
-               // But wait, "stickyAuth" failed means it's not "stickyAuth".
-               // Let's try the renamed parameter.
-               // If that fails, the user will tell me. But I want to avoid that.
-               
-               // Let's look at search result source [1] URL checks...
-               // It says "stickyAuth has been renamed".
-               // I will use it.
-             );
-             if (didAuthenticate) {
-                if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const LockedChatsScreen()));
-             }
-          } catch(e) {
-             debugPrint("Auth failed: $e");
-             // Fallback for testing on simulator or if no hardware:
-             // Maybe show PIN dialog? Or just allow if e.code is specific?
-             // User asked for "perfect", so we shouldn't just allow.
-             if (mounted) {
-               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Authentication needed: $e")));
-             }
-          }
-       },
+               if (didAuthenticate) {
+                  if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const LockedChatsScreen()));
+               }
+            } catch(e) {
+               debugPrint("Auth Error: $e");
+               if (e.toString().contains('NotEnrolled') || e.toString().contains('no_biometrics') || e.toString().contains('PasscodeNotSet')) {
+                  // Prompt to set up
+                  if (mounted) {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        backgroundColor: theme.cardColor,
+                        title: const Text("Security Required", style: TextStyle(color: Colors.white)),
+                        content: const Text(
+                          "To use Locked Chats, you must set up a Screen Lock (PIN, Pattern, or Password) on your device.",
+                          style: TextStyle(color: Colors.white70)
+                        ),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+                          TextButton(
+                            onPressed: () {
+                               Navigator.pop(ctx);
+                               // Open Security Settings (Best effort)
+                               // Using permission_handler 'openAppSettings' or equivalent?
+                               // actually 'local_auth' doesn't open settings.
+                               // We can just tell them.
+                            }, 
+                            child: const Text("OK", style: TextStyle(color: Colors.blueAccent))
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+               } else {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                       SnackBar(content: Text("Authentication failed. Please try again.")),
+                    );
+                  }
+               }
+            }
+         },
        child: Container(
          margin: const EdgeInsets.only(bottom: 12),
          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

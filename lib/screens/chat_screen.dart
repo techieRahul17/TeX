@@ -765,6 +765,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // Decryption Logic
     return FutureBuilder<String>(
+      key: ValueKey(data['message']), // Force rebuild if content changes (e.g. edit)
       // If group, use symmetric. If 1-on-1, use asymmetric.
       future: widget.isGroup 
           ? _decryptGroupMessage(data['message']) 
@@ -797,12 +798,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
         // Handle Deleted Message
         bool isDeleted = data['isDeleted'] ?? false;
+        bool isEdited = data['isEdited'] ?? false;
+        
         if (isDeleted) {
           messageText = "🚫 This message was deleted";
           isImage = false;
-        } else if (data['isEdited'] ?? false) {
-          messageText += " (edited)"; // Append edited tag
-        }
+          isEdited = false; // Don't show edited tag if deleted
+        } 
         
         return Container(
           alignment: alignment,
@@ -841,10 +843,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                isSender: isSender, 
                                color: wallpaper.bubbleColor,
                                isStarred: (data['starredBy'] as List?)?.contains(_auth.currentUser!.uid) ?? false,
+                               isEdited: isEdited,
                              ),
                              width: 200,
                              fit: BoxFit.cover,
-                          ),
+                           ),
                         ),
                       )
                     else
@@ -854,6 +857,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         color: isDeleted ? Colors.grey.withOpacity(0.5) : wallpaper.bubbleColor, // Grey if deleted
                         isStarred: (data['starredBy'] as List?)?.contains(_auth.currentUser!.uid) ?? false,
                         textStyle: isDeleted ? const TextStyle(fontStyle: FontStyle.italic, color: Colors.white70) : null,
+                        isEdited: isEdited,
                       ),
                     
                     // Message Status Indicator
@@ -971,14 +975,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 }
               },
             ),
-            // Copy
+             // Copy
             if (!isDeleted)
             ListTile(
                leading: const Icon(Icons.copy, color: Colors.white),
                title: const Text("Copy", style: TextStyle(color: Colors.white)),
                onTap: () async {
                  Navigator.pop(context);
-                 await Clipboard.setData(ClipboardData(text: messageText.replaceAll(" (edited)", "")));
+                 await Clipboard.setData(ClipboardData(text: messageText));
                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text("Message copied to clipboard")),

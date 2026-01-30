@@ -8,6 +8,7 @@ class ChatBubble extends StatelessWidget {
   final Color? color;
   final bool isStarred;
   final TextStyle? textStyle;
+  final bool isEdited;
 
   const ChatBubble({
     super.key,
@@ -16,6 +17,7 @@ class ChatBubble extends StatelessWidget {
     this.color,
     this.isStarred = false,
     this.textStyle,
+    this.isEdited = false,
   });
 
   @override
@@ -67,6 +69,8 @@ class ChatBubble extends StatelessWidget {
       child: Column(
         crossAxisAlignment: isSender ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
+          // Use RichText to append "edited" if simple text, but message might be long.
+          // Better: Message Text + Row for metadata (Star + Edited)
           Text(
             message,
             style: textStyle ?? const TextStyle(
@@ -75,13 +79,29 @@ class ChatBubble extends StatelessWidget {
               fontWeight: FontWeight.w400,
             ),
           ),
-          if (isStarred)
+          if (isStarred || isEdited)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Icon(
-                Icons.star,
-                size: 12,
-                color: isSender ? Colors.white.withOpacity(0.9) : Colors.yellowAccent,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isEdited)
+                    Text(
+                      "(edited)",
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.white.withOpacity(0.6),
+                      ),
+                    ),
+                  if (isEdited && isStarred) const SizedBox(width: 4),
+                  if (isStarred)
+                    Icon(
+                      Icons.star,
+                      size: 12,
+                      color: isSender ? Colors.white.withOpacity(0.9) : Colors.yellowAccent,
+                    ),
+                ],
               ),
             ),
         ],
