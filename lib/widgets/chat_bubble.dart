@@ -6,14 +6,16 @@ class ChatBubble extends StatelessWidget {
   final String message;
   final bool isSender;
   final Color? color;
-  final bool isStarred; // Added isStarred
+  final bool isStarred;
+  final TextStyle? textStyle;
 
   const ChatBubble({
     super.key,
     required this.message,
     required this.isSender,
     this.color,
-    this.isStarred = false, // Default false
+    this.isStarred = false,
+    this.textStyle,
   });
 
   @override
@@ -67,7 +69,7 @@ class ChatBubble extends StatelessWidget {
         children: [
           Text(
             message,
-            style: const TextStyle(
+            style: textStyle ?? const TextStyle(
               color: Colors.white,
               fontSize: 16,
               fontWeight: FontWeight.w400,

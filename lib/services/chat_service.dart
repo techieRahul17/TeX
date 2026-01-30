@@ -641,4 +641,80 @@ class ChatService extends ChangeNotifier {
       rethrow;
     }
   }
+
+  // --- NEW FEATURES: DELETE, EDIT, LOCK ---
+
+  // DELETE MESSAGE (Soft Delete)
+  Future<void> deleteMessage(String chatRoomId, String messageId, {bool isGroup = false}) async {
+     final String collection = isGroup ? 'groups' : 'chat_rooms';
+     await _firestore.collection(collection).doc(chatRoomId).collection('messages').doc(messageId).update({
+       'isDeleted': true,
+       'message': '', // Clear content
+       'deletedAt': FieldValue.serverTimestamp(),
+     });
+  }
+
+  // EDIT MESSAGE
+  Future<void> editMessage(String chatRoomId, String messageId, String newContent, {bool isGroup = false}) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    String finalContent = newContent;
+
+    try {
+      if (isGroup) {
+         // 1. Get Group Key
+         DocumentSnapshot groupDoc = await _firestore.collection('groups').doc(chatRoomId).get();
+         if (groupDoc.exists) {
+            Map<String, dynamic> data = groupDoc.data() as Map<String, dynamic>;
+            Map<String, dynamic> keys = data['keys'] ?? {};
+            String? myEncryptedKey = keys[currentUserId];
+            
+            if (myEncryptedKey != null) {
+              String groupKey = await EncryptionService().decryptKey(myEncryptedKey);
+              // Encrypt new content
+              finalContent = await EncryptionService().encryptSymmetric(newContent, groupKey);
+            }
+         }
+      } else {
+        // 1-on-1: Need to find Other User ID from ChatRoomID
+        // ChatRoomID = uid1_uid2 (sorted)
+        List<String> parts = chatRoomId.split('_');
+        String otherUserId = parts.first == currentUserId ? parts.last : parts.first;
+
+        // Get Receiver Public Key
+        DocumentSnapshot userDoc = await _firestore.collection('users').doc(otherUserId).get();
+        if (userDoc.exists) {
+           String? pubKey = (userDoc.data() as Map<String, dynamic>)['publicKey'];
+           if (pubKey != null) {
+              finalContent = await EncryptionService().encryptMessage(newContent, pubKey);
+           }
+        }
+      }
+
+      final String collection = isGroup ? 'groups' : 'chat_rooms';
+      await _firestore.collection(collection).doc(chatRoomId).collection('messages').doc(messageId).update({
+        'message': finalContent,
+        'isEdited': true,
+        'editedAt': FieldValue.serverTimestamp(),
+      });
+
+    } catch (e) {
+      debugPrint("Edit Message Failed: $e");
+      rethrow;
+    }
+  }
+
+  // TOGGLE LOCK CHAT
+  Future<void> toggleChatLock(String chatId, bool lock) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    
+    if (lock) {
+      await _firestore.collection('users').doc(currentUserId).update({
+        'lockedChatIds': FieldValue.arrayUnion([chatId]),
+      });
+    } else {
+      await _firestore.collection('users').doc(currentUserId).update({
+        'lockedChatIds': FieldValue.arrayRemove([chatId]),
+      });
+    }
+  }
 }
