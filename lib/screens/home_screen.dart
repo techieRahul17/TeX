@@ -6,6 +6,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
+import 'package:texting/config/wallpapers.dart';
 import 'package:texting/screens/chat_screen.dart';
 import 'package:texting/screens/create_group_screen.dart';
 import 'package:texting/screens/profile_screen.dart';
@@ -53,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // Hide AppBar on Profile (2) and Settings (3) Tabs
         toolbarHeight: _currentIndex >= 2 ? 0 : kToolbarHeight,
         automaticallyImplyLeading: false, 
+        centerTitle: true, // Center the title
         title: _currentIndex >= 2 ? null : ShaderMask(
           shaderCallback: (bounds) =>
               LinearGradient(colors: [primaryColor, secondaryColor]).createShader(bounds),
@@ -62,10 +64,10 @@ class _HomeScreenState extends State<HomeScreen> {
               fontWeight: FontWeight.bold,
               letterSpacing: 1.5,
               color: Colors.white,
-              fontSize: 24,
+              fontSize: 28, // Slightly larger
             ),
           ),
-        ),
+        ).animate().fadeIn(duration: 800.ms).slideY(begin: -0.5, end: 0), // Animate Title
         actions: _currentIndex >= 2 ? [] : [
           IconButton(
             onPressed: () {
@@ -73,13 +75,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const RequestsScreen()));
             },
             icon: Icon(PhosphorIcons.userPlus(), color: Colors.white70),
-          ),
+          ).animate().fadeIn(delay: 200.ms),
           IconButton(
             onPressed: () {
                Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen()));
             },
             icon: Icon(PhosphorIcons.magnifyingGlass(), color: Colors.white70),
-          ),
+          ).animate().fadeIn(delay: 300.ms),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white70),
             color: const Color(0xFF1E1E1E),
@@ -113,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
-          ),
+          ).animate().fadeIn(delay: 400.ms),
         ],
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -134,54 +136,19 @@ class _HomeScreenState extends State<HomeScreen> {
            ),
            child: Icon(PhosphorIcons.plus(), color: Colors.white)
         ),
-      ),
-      bottomNavigationBar: _buildStylishBottomNav(theme),
+      ).animate().scale(delay: 500.ms, duration: 400.ms, curve: Curves.easeOutBack),
+      bottomNavigationBar: _buildStylishBottomNav(theme)
+          .animate().slideY(begin: 1, end: 0, duration: 600.ms, curve: Curves.easeOutQuad),
       body: Container(
          decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor,
+          gradient: LinearGradient(
+            colors: Wallpapers.getById(Provider.of<AuthService>(context).currentUserModel?.globalWallpaperId ?? 'crimson_eclipse').colors,
+            begin: Wallpapers.getById(Provider.of<AuthService>(context).currentUserModel?.globalWallpaperId ?? 'crimson_eclipse').begin,
+            end: Wallpapers.getById(Provider.of<AuthService>(context).currentUserModel?.globalWallpaperId ?? 'crimson_eclipse').end,
+          ),
         ),
         child: Stack(
           children: [
-             // Global Ambient Gradients
-            Positioned(
-              top: -100,
-              right: -100,
-              child: Container(
-                width: 300,
-                height: 300,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: primaryColor.withOpacity(0.15),
-                  boxShadow: [
-                    BoxShadow(
-                      color: primaryColor.withOpacity(0.2),
-                      blurRadius: 100,
-                      spreadRadius: 50,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-             Positioned(
-              bottom: -50,
-              left: -50,
-              child: Container(
-                width: 250,
-                height: 250,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: secondaryColor.withOpacity(0.1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: secondaryColor.withOpacity(0.1),
-                      blurRadius: 100,
-                      spreadRadius: 60,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            
             // Content
             PageView(
               controller: _pageController,

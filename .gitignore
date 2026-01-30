@@ -58,3 +58,4 @@ macos/Runner/GoogleService-Info.plist
 # =====================
 web/firebase-config.js
 lib/config/secrets.dart
+.vercel

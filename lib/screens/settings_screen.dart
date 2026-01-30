@@ -103,31 +103,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       body: Container(
         decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor,
+           gradient: LinearGradient(
+            colors: Wallpapers.getById(_selectedWallpaperId).colors,
+            begin: Wallpapers.getById(_selectedWallpaperId).begin,
+            end: Wallpapers.getById(_selectedWallpaperId).end,
+          ),
         ),
         child: Stack(
           children: [
-            // Ambient Gradients
-             Positioned(
-              top: -50,
-              right: -50,
-              child: Container(
-                width: 250,
-                height: 250,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: theme.primaryColor.withOpacity(0.2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: theme.primaryColor.withOpacity(0.2),
-                      blurRadius: 100,
-                      spreadRadius: 50,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            
             // Content
             SafeArea(
               child: SingleChildScrollView(

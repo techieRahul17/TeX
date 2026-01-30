@@ -1,0 +1,16 @@
+.android
+.ios
+.linux
+.macos
+.windows
+build
+.dart_tool
+.git
+.gitignore
+node_modules
+android
+ios
+linux
+macos
+windows
+test
