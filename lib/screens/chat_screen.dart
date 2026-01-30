@@ -790,10 +790,18 @@ class _ChatScreenState extends State<ChatScreen> {
         }
 
         // GIF/Image Detection
-        // Check if message is a Giphy URL or general image URL
         bool isImage = false;
         if (messageText.startsWith('http') && (messageText.contains('giphy.com') || messageText.contains('media.giphy.com') || messageText.endsWith('.gif'))) {
            isImage = true;
+        }
+
+        // Handle Deleted Message
+        bool isDeleted = data['isDeleted'] ?? false;
+        if (isDeleted) {
+          messageText = "🚫 This message was deleted";
+          isImage = false;
+        } else if (data['isEdited'] ?? false) {
+          messageText += " (edited)"; // Append edited tag
         }
         
         return Container(
@@ -843,8 +851,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       ChatBubble(
                         message: messageText,
                         isSender: isSender,
-                        color: wallpaper.bubbleColor,
+                        color: isDeleted ? Colors.grey.withOpacity(0.5) : wallpaper.bubbleColor, // Grey if deleted
                         isStarred: (data['starredBy'] as List?)?.contains(_auth.currentUser!.uid) ?? false,
+                        textStyle: isDeleted ? const TextStyle(fontStyle: FontStyle.italic, color: Colors.white70) : null,
                       ),
                     
                     // Message Status Indicator
@@ -877,6 +886,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _showMessageOptions(BuildContext context, Map<String, dynamic> data, String messageId, bool isSender, String messageText, ThemeData theme) {
     bool isStarred = (data['starredBy'] as List?)?.contains(_auth.currentUser!.uid) ?? false;
+    bool isDeleted = data['isDeleted'] ?? false;
     
     showModalBottomSheet(
       context: context, 
@@ -884,12 +894,60 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (context) => Container(
         decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+          borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
         ),
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // DELETE (Sender Only)
+            if (isSender && !isDeleted)
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.redAccent),
+                title: const Text("Delete", style: TextStyle(color: Colors.redAccent)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: theme.cardColor,
+                      title: const Text("Delete Message?", style: TextStyle(color: Colors.white)),
+                      content: const Text("This will remove the message for everyone.", style: TextStyle(color: Colors.white70)),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+                        TextButton(
+                           onPressed: () => Navigator.pop(ctx, true), 
+                           child: const Text("Delete", style: TextStyle(color: Colors.red))
+                        ),
+                      ],
+                    ),
+                  );
+
+                  if (confirm == true) {
+                    try {
+                      List<String> ids = [_auth.currentUser!.uid, widget.receiverUserID];
+                      ids.sort();
+                      String chatRoomId = widget.isGroup ? widget.receiverUserID : ids.join("_");
+                      
+                      await _chatService.deleteMessage(chatRoomId, messageId, isGroup: widget.isGroup);
+                    } catch (e) {
+                      debugPrint("Delete failed: $e");
+                    }
+                  }
+                },
+              ),
+
+            // EDIT (Sender Only, Text Only)
+            if (isSender && !isDeleted && data['type'] == 'text')
+               ListTile(
+                leading: const Icon(Icons.edit, color: Colors.blueAccent),
+                title: const Text("Edit", style: TextStyle(color: Colors.white)),
+                onTap: () {
+                   Navigator.pop(context);
+                   _showEditDialog(context, messageId, messageText.replaceAll(" (edited)", ""), theme); // Remove tag if present in passed text
+                },
+               ),
+
             // Star / Unstar
             ListTile(
               leading: Icon(
@@ -903,7 +961,6 @@ class _ChatScreenState extends State<ChatScreen> {
                    if (widget.isGroup) {
                       await _chatService.toggleMessageStar(widget.receiverUserID, messageId, true);
                    } else {
-                      // 1-on-1: Need to reconstruct chatRoomId
                       List<String> ids = [_auth.currentUser!.uid, widget.receiverUserID];
                       ids.sort();
                       String chatRoomId = ids.join("_");
@@ -915,12 +972,13 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             // Copy
+            if (!isDeleted)
             ListTile(
                leading: const Icon(Icons.copy, color: Colors.white),
                title: const Text("Copy", style: TextStyle(color: Colors.white)),
                onTap: () async {
                  Navigator.pop(context);
-                 await Clipboard.setData(ClipboardData(text: messageText));
+                 await Clipboard.setData(ClipboardData(text: messageText.replaceAll(" (edited)", "")));
                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text("Message copied to clipboard")),
@@ -929,7 +987,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
              ),
              // Send as SMS (Offline Fallback)
-             if (_receiverPhoneNumber != null && _receiverPhoneNumber!.isNotEmpty)
+             if (_receiverPhoneNumber != null && _receiverPhoneNumber!.isNotEmpty && !isDeleted)
                ListTile(
                  leading: const Icon(Icons.sms, color: Colors.greenAccent),
                  title: const Text("Send as SMS", style: TextStyle(color: Colors.white)),
@@ -958,7 +1016,7 @@ class _ChatScreenState extends State<ChatScreen> {
                  },
                ),
               // Group Info (Originally was the only option)
-             if (widget.isGroup)
+             if (widget.isGroup && !isDeleted)
                ListTile(
                  leading: const Icon(Icons.info_outline, color: Colors.white),
                  title: const Text("Message Info", style: TextStyle(color: Colors.white)),
@@ -970,6 +1028,47 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       )
+    );
+  }
+
+  void _showEditDialog(BuildContext context, String messageId, String currentText, ThemeData theme) {
+    TextEditingController editController = TextEditingController(text: currentText);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.cardColor,
+        title: const Text("Edit Message", style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: editController,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: "Enter new message",
+            hintStyle: TextStyle(color: Colors.white54),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () async {
+               if (editController.text.trim().isNotEmpty) {
+                 Navigator.pop(ctx);
+                 try {
+                    List<String> ids = [_auth.currentUser!.uid, widget.receiverUserID];
+                    ids.sort();
+                    String chatRoomId = widget.isGroup ? widget.receiverUserID : ids.join("_");
+                    
+                    await _chatService.editMessage(chatRoomId, messageId, editController.text.trim(), isGroup: widget.isGroup);
+                 } catch (e) {
+                   debugPrint("Edit failed: $e");
+                 }
+               }
+            }, 
+            child: const Text("Save", style: TextStyle(color: Colors.blueAccent))
+          ),
+        ],
+      ),
     );
   }
 

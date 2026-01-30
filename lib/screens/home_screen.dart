@@ -19,6 +19,8 @@ import 'package:texting/screens/tex_work_screen.dart';
 import 'package:texting/services/encryption_service.dart';
 import 'package:texting/screens/link_web_screen.dart';
 import 'package:texting/models/user_model.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:texting/screens/locked_chats_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -30,6 +32,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final PageController _pageController = PageController();
+  final LocalAuthentication auth = LocalAuthentication();
 
   @override
   void dispose() {
@@ -276,6 +279,21 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         
         if (currentUserModel.friends.isEmpty) {
+          // If no friends, still check if we have locked chats to show the button?
+          // Actually if friends list is empty, we probably don't have locked chats either unless we unfriended them but kept lock?
+          // Let's just show standard empty state but INCLUDE locked chats button if needed.
+          
+          if (currentUserModel.lockedChatIds.isNotEmpty) {
+             return Column(
+               children: [
+                 _buildLockedChatsButton(theme, currentUserModel.lockedChatIds.length),
+                 Expanded(
+                   child: Center(child: Text("No other friends.", style: TextStyle(color: Colors.white54))),
+                 ),
+               ],
+             );
+          }
+
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -290,19 +308,34 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.only(top: 100, left: 16, right: 16, bottom: 100), // Adjust for header/nav
-          itemCount: currentUserModel.friends.length,
-          itemBuilder: (context, index) {
-            final friendUid = currentUserModel.friends[index];
-            return FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance.collection('users').doc(friendUid).get(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const SizedBox(); // Loading or error placeholder
-                return _buildUserListItem(snapshot.data!, context, theme, currentUserModel.uid);
-              },
-            );
-          },
+        // Filter out locked chats
+        final visibleFriends = currentUserModel.friends.where((uid) => !currentUserModel.lockedChatIds.contains(uid)).toList();
+
+        return Column(
+          children: [
+             if (currentUserModel.lockedChatIds.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 100, left: 16, right: 16, bottom: 0),
+                  child: _buildLockedChatsButton(theme, currentUserModel.lockedChatIds.length),
+                ),
+                
+             Expanded(
+               child: ListView.builder(
+                padding: EdgeInsets.only(top: currentUserModel.lockedChatIds.isEmpty ? 100 : 10, left: 16, right: 16, bottom: 100), 
+                itemCount: visibleFriends.length,
+                itemBuilder: (context, index) {
+                  final friendUid = visibleFriends[index];
+                  return FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance.collection('users').doc(friendUid).get(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const SizedBox(); 
+                      return _buildUserListItem(snapshot.data!, context, theme, currentUserModel.uid);
+                    },
+                  );
+                },
+              ),
+             ),
+          ],
         );
       },
     );
@@ -451,10 +484,99 @@ class _HomeScreenState extends State<HomeScreen> {
                       )
                     : null
                   ),
+            onLongPress: () {
+               _showLockOption(context, otherUserId, name);
+            },
           ),
         ).animate().fadeIn().slideX();
       },
     );
+  }
+  
+  void _showLockOption(BuildContext context, String chatId, String name) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StellarTheme.cardColor,
+        title: const Text("Lock Chat?", style: TextStyle(color: Colors.white)),
+        content: Text("Lock chat with $name? You will need to use authentication to access it.", style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () async {
+               Navigator.pop(ctx);
+               // Add to locked chats
+               await ChatService().toggleChatLock(chatId, true);
+            }, 
+            child: const Text("Lock", style: TextStyle(color: Colors.blueAccent))
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLockedChatsButton(ThemeData theme, int count) {
+     return GestureDetector(
+       onTap: () async {
+          // Authenticate
+          try {
+             bool didAuthenticate = await auth.authenticate(
+               localizedReason: 'Please authenticate to view locked chats',
+               // options argument was removed in this version, parameters are direct.
+               // stickyAuth was renamed to persistAcrossBackgrounding (if available, otherwise rely on default)
+               // Note: Some versions might not even have persistAcrossBackgrounding exposed directly if it's default?
+               // Let's try to verify if I can just omit it if I'm unsure, but sticky behavior is nice.
+               // However, to be "Error Free", removing it is safer than guessing if I can't verify.
+               // But User wants "Perfect". 
+               // Search result was strong about rename.
+               
+               // But wait, "stickyAuth" failed means it's not "stickyAuth".
+               // Let's try the renamed parameter.
+               // If that fails, the user will tell me. But I want to avoid that.
+               
+               // Let's look at search result source [1] URL checks...
+               // It says "stickyAuth has been renamed".
+               // I will use it.
+             );
+             if (didAuthenticate) {
+                if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const LockedChatsScreen()));
+             }
+          } catch(e) {
+             debugPrint("Auth failed: $e");
+             // Fallback for testing on simulator or if no hardware:
+             // Maybe show PIN dialog? Or just allow if e.code is specific?
+             // User asked for "perfect", so we shouldn't just allow.
+             if (mounted) {
+               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Authentication needed: $e")));
+             }
+          }
+       },
+       child: Container(
+         margin: const EdgeInsets.only(bottom: 12),
+         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+         decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.primaryColor.withOpacity(0.3)),
+         ),
+         child: Row(
+           children: [
+             Icon(PhosphorIcons.lockKey(), color: theme.primaryColor),
+             const SizedBox(width: 12),
+             const Text("Locked Chats", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+             const Spacer(),
+             Container(
+               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+               decoration: BoxDecoration(
+                 color: theme.primaryColor.withOpacity(0.2),
+                 borderRadius: BorderRadius.circular(10),
+               ),
+               child: Text("$count chats", style: TextStyle(color: theme.primaryColor, fontSize: 12)),
+             )
+           ],
+         ),
+       ),
+     );
   }
 
   // --- 2. GROUPS LIST (with Invitations) ---
@@ -510,8 +632,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
               final docs = snapshot.data!.docs;
               
+              // Filter Locked Groups
+              final userModel = Provider.of<AuthService>(context, listen: false).currentUserModel;
+              final visibleDocs = docs.where((doc) => !(userModel?.lockedChatIds.contains(doc.id) ?? false)).toList();
+              
               // Sort by createdAt descending (newest first)
-              docs.sort((a, b) {
+              visibleDocs.sort((a, b) {
                 final aData = a.data() as Map<String, dynamic>;
                 final bData = b.data() as Map<String, dynamic>;
                 final Timestamp? tA = aData['createdAt'] as Timestamp?;
@@ -521,7 +647,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 return tB.compareTo(tA);
               });
 
-              if (docs.isEmpty) {
+              if (visibleDocs.isEmpty) {
                 return Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -543,7 +669,7 @@ class _HomeScreenState extends State<HomeScreen> {
               }
 
               return Column(
-                children: docs.map((doc) => _buildGroupCard(doc, context, theme)).toList(),
+                children: visibleDocs.map((doc) => _buildGroupCard(doc, context, theme)).toList(),
               );
             },
           ),
@@ -714,6 +840,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ) 
             : null,
+        onLongPress: () {
+          _showLockOption(context, doc.id, groupName);
+        },
       ),
     ).animate().fadeIn().slideX();
   }

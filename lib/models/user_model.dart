@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class UserModel {
   final String uid;
   final String email;
@@ -12,7 +14,7 @@ class UserModel {
   final List<String> friendRequestsSent;
   final String about;
   final bool isOnline;
-  final Timestamp lastSeen;
+  final Timestamp lastSeen; // Changed back from lastActive
   final bool isProfileComplete;
   final bool isReadReceiptsEnabled;
 
@@ -20,6 +22,7 @@ class UserModel {
   final String? phoneNumber;
   final Map<String, String> chatWallpapers;
   final String? globalWallpaperId;
+  final List<String> lockedChatIds;
 
   UserModel({
     required this.uid,
@@ -41,6 +44,7 @@ class UserModel {
     this.phoneNumber,
     this.chatWallpapers = const {},
     this.globalWallpaperId,
+    this.lockedChatIds = const [],
   });
 
   Map<String, dynamic> toMap() {
@@ -64,6 +68,7 @@ class UserModel {
       'phoneNumber': phoneNumber,
       'chatWallpapers': chatWallpapers,
       'globalWallpaperId': globalWallpaperId,
+      'lockedChatIds': lockedChatIds,
     };
   }
 
@@ -73,7 +78,7 @@ class UserModel {
       email: map['email'] ?? '',
       username: map['username'] ?? '',
       displayName: map['displayName'] ?? '',
-      photoUrl: map['photoURL'] ?? '', 
+      photoUrl: map['photoUrl'] ?? map['photoURL'] ?? '', 
       searchKeywords: List<String>.from(map['searchKeywords'] ?? []),
       friends: List<String>.from(map['friends'] ?? []),
       friendRequestsReceived: List<String>.from(map['friendRequestsReceived'] ?? []),
@@ -82,14 +87,16 @@ class UserModel {
       isOnline: map['isOnline'] ?? false,
       lastSeen: map['lastSeen'] ?? Timestamp.now(),
       isProfileComplete: map['isProfileComplete'] ?? false,
-      isReadReceiptsEnabled: map['isReadReceiptsEnabled'] ?? true, // Default true
+      isReadReceiptsEnabled: map['isReadReceiptsEnabled'] ?? true, 
       publicKey: map['publicKey'],
       phoneNumber: map['phoneNumber'],
       chatWallpapers: Map<String, String>.from(map['chatWallpapers'] ?? {}),
       globalWallpaperId: map['globalWallpaperId'],
+      lockedChatIds: List<String>.from(map['lockedChatIds'] ?? []),
     );
   }
 
+  // CopyWith mainly for updates if needed
   UserModel copyWith({
     String? uid,
     String? email,
@@ -107,7 +114,9 @@ class UserModel {
     bool? isReadReceiptsEnabled,
     String? publicKey,
     String? phoneNumber,
+    Map<String, String>? chatWallpapers,
     String? globalWallpaperId,
+    List<String>? lockedChatIds,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -128,6 +137,7 @@ class UserModel {
       phoneNumber: phoneNumber ?? this.phoneNumber,
       chatWallpapers: chatWallpapers ?? this.chatWallpapers,
       globalWallpaperId: globalWallpaperId ?? this.globalWallpaperId,
+      lockedChatIds: lockedChatIds ?? this.lockedChatIds,
     );
   }
 }
