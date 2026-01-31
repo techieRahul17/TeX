@@ -19,7 +19,6 @@ import 'package:texting/screens/tex_work_screen.dart';
 import 'package:texting/services/encryption_service.dart';
 import 'package:texting/screens/link_web_screen.dart';
 import 'package:texting/models/user_model.dart';
-import 'package:local_auth/local_auth.dart';
 import 'package:texting/screens/locked_chats_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -32,7 +31,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final PageController _pageController = PageController();
-  final LocalAuthentication auth = LocalAuthentication();
 
   @override
   void dispose() {
@@ -517,37 +515,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildLockedChatsButton(ThemeData theme, int count) {
      return GestureDetector(
-         onTap: () async {
-            // Check if device supports custom local auth or if we should fallback
-            bool canCheckBiometrics = await auth.canCheckBiometrics;
-            bool isDeviceSupported = await auth.isDeviceSupported();
-
-            if (!isDeviceSupported && !canCheckBiometrics) {
-               if (mounted) {
-                 ScaffoldMessenger.of(context).showSnackBar(
-                   const SnackBar(content: Text("Secure authentication is not available on this device.")),
-                 );
-               }
-               return;
-            }
-
-            try {
-               bool didAuthenticate = await auth.authenticate(
-                 localizedReason: 'Please authenticate to access Locked Chats',
-               );
-               
-               if (didAuthenticate) {
-                  if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const LockedChatsScreen()));
-               } else {
-                 // User cancelled or failed multiple times
-               }
-            } catch(e) {
-               debugPrint("Auth Error: $e");
-               // Fallback: Ask for App Password (if available)
-               // Determine if we should show fallback
-               if (mounted) {
-                 _showPasswordFallbackDialog(context);
-               }
+         onTap: () {
+            // Check if Privacy Password is set
+            final user = Provider.of<AuthService>(context, listen: false).currentUserModel;
+            if (user?.privacyPasswordHash != null) {
+               _showUnlockDialog(context);
+            } else {
+               _showSetupDialog(context);
             }
          },
        child: Container(
@@ -578,58 +552,102 @@ class _HomeScreenState extends State<HomeScreen> {
      );
   }
 
-  void _showPasswordFallbackDialog(BuildContext context) {
+  void _showUnlockDialog(BuildContext context) {
     TextEditingController passwordController = TextEditingController();
+    
+    final List<String> cheekyErrors = [
+      "Oops! That's not it. Try again?",
+      "Close, but no cigar!",
+      "Hmm... maybe check for typos?",
+      "Not quite! One more try?",
+      "Dont give up!",
+      "Give a shot again!!",
+    ];
+
     showDialog(
+      context: context,
+      builder: (ctx) {
+        String? errorText;
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: StellarTheme.cardColor,
+              title: const Text("Locked Chats", style: TextStyle(color: Colors.white)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                   const Text("Enter your Privacy Password to unlock.", style: TextStyle(color: Colors.white70)),
+                   const SizedBox(height: 16),
+                   TextField(
+                    controller: passwordController,
+                    obscureText: true,
+                    style: const TextStyle(color: Colors.white),
+                    onChanged: (_) {
+                       if (errorText != null) {
+                         setState(() => errorText = null);
+                       }
+                    },
+                    decoration: InputDecoration(
+                      hintText: "Password",
+                      hintStyle: const TextStyle(color: Colors.white54),
+                      errorText: errorText,
+                      errorStyle: const TextStyle(color: Colors.orangeAccent, fontStyle: FontStyle.italic),
+                      enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
+                      focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+                      errorBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.orangeAccent)),
+                      focusedErrorBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.orangeAccent)),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+                TextButton(
+                  onPressed: () async {
+                     if (passwordController.text.isNotEmpty) {
+                        final auth = Provider.of<AuthService>(context, listen: false);
+                        bool isValid = await auth.verifyPrivacyPassword(passwordController.text);
+                        
+                        if (isValid) {
+                           Navigator.pop(ctx);
+                           if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const LockedChatsScreen()));
+                        } else {
+                           setState(() {
+                             errorText = (cheekyErrors..shuffle()).first;
+                           });
+                        }
+                     }
+                  }, 
+                  child: const Text("Unlock", style: TextStyle(color: Colors.blueAccent))
+                ),
+              ],
+            );
+          }
+        );
+      },
+    );
+  }
+
+  void _showSetupDialog(BuildContext context) {
+     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: StellarTheme.cardColor,
-        title: const Text("Authentication Failed", style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              "Biometric/Screen Lock is unavailable. Please enter your account password to unlock.",
-              style: TextStyle(color: Colors.white70, fontSize: 14),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                hintText: "Password",
-                hintStyle: TextStyle(color: Colors.white54),
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
-                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
-              ),
-            ),
-          ],
+        title: const Text("Setup Required", style: TextStyle(color: Colors.white)),
+        content: const Text(
+          "To use Locked Chats, you must set a Privacy Password in your profile.",
+          style: TextStyle(color: Colors.white70)
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
           TextButton(
-            onPressed: () async {
-               String password = passwordController.text.trim();
-               if (password.isNotEmpty) {
-                  // Verify Password using Firebase Re-Auth
-                  try {
-                    User? user = FirebaseAuth.instance.currentUser;
-                    if (user != null && user.email != null) {
-                       AuthCredential credential = EmailAuthProvider.credential(email: user.email!, password: password);
-                       await user.reauthenticateWithCredential(credential);
-                       Navigator.pop(ctx); // Close Dialog
-                       if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => const LockedChatsScreen()));
-                    } else {
-                       ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text("No email found for user.")));
-                    }
-                  } catch (e) {
-                     debugPrint("Password verification failed: $e");
-                     ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text("Incorrect password.")));
-                  }
-               }
+            onPressed: () {
+               Navigator.pop(ctx);
+               // Navigate to Profile
+               final userId = Provider.of<AuthService>(context, listen: false).currentUser!.uid;
+               Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: userId, isSelf: true)));
             }, 
-            child: const Text("Unlock", style: TextStyle(color: Colors.blueAccent))
+            child: const Text("Go to Profile", style: TextStyle(color: Colors.blueAccent))
           ),
         ],
       ),

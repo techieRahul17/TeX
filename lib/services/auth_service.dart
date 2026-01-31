@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'dart:convert';
+import 'package:cryptography/cryptography.dart';
 import '../models/user_model.dart';
 import 'encryption_service.dart';
 
@@ -428,5 +430,39 @@ class AuthService extends ChangeNotifier {
         .collection('sessions')
         .doc(deviceId)
         .delete();
+  }
+
+  // --- PRIVACY PASSWORD (Locked Chats) ---
+
+  Future<void> setPrivacyPassword(String password) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    // Hash the password securely
+    final algorithm = Sha256();
+    final hash = await algorithm.hash(utf8.encode(password));
+    final String hashString = base64Encode(hash.bytes);
+
+    await _firestore.collection('users').doc(user.uid).update({
+      'privacyPasswordHash': hashString,
+    });
+    
+    // Update local model
+    if (_currentUserModel != null) {
+      _currentUserModel = _currentUserModel!.copyWith(privacyPasswordHash: hashString);
+      notifyListeners();
+    }
+  }
+
+  Future<bool> verifyPrivacyPassword(String password) async {
+    final user = _auth.currentUser;
+    if (user == null || _currentUserModel?.privacyPasswordHash == null) return false;
+
+    // Hash input and compare
+    final algorithm = Sha256();
+    final hash = await algorithm.hash(utf8.encode(password));
+    final String hashString = base64Encode(hash.bytes);
+
+    return hashString == _currentUserModel!.privacyPasswordHash;
   }
 }

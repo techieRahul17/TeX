@@ -590,6 +590,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               const SizedBox(height: 8),
                             ],
                             _buildChipList(_hobbies, (item) => setState(() => _hobbies.remove(item)), theme),
+
+                            // PRIVACY & SECURITY
+                             if (widget.isSelf) ...[
+                                _buildSectionTitle("Privacy & Security", PhosphorIcons.lockKey(), theme),
+                                Consumer<AuthService>(
+                                  builder: (context, auth, _) {
+                                     bool isSet = auth.currentUserModel?.privacyPasswordHash != null;
+                                     return ListTile(
+                                       contentPadding: EdgeInsets.zero,
+                                       leading: Container(
+                                         padding: const EdgeInsets.all(8),
+                                         decoration: BoxDecoration(color: theme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                         child: Icon(isSet ? PhosphorIcons.checkCircle() : PhosphorIcons.warningCircle(), color: isSet ? Colors.green : Colors.orange),
+                                       ),
+                                       title: const Text("Locked Chats Password", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                       subtitle: Text(isSet ? "Active (Tap to Change)" : "Not Set (Tap to Setup)", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                       trailing: const Icon(Icons.chevron_right, color: Colors.white54),
+                                       onTap: () => _showSetPrivacyPasswordDialog(context, isSet),
+                                     );
+                                  },
+                                ),
+                             ],
                             
                             if (_isEditing) ...[
                               const SizedBox(height: 32),
@@ -616,6 +638,78 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showSetPrivacyPasswordDialog(BuildContext context, bool isSet) {
+    final TextEditingController oldPassController = TextEditingController();
+    final TextEditingController newPassController = TextEditingController();
+    final TextEditingController confirmPassController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StellarTheme.cardColor,
+        title: Text(isSet ? "Change Password" : "Set Privacy Password", style: const TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "This password will be used to unlock 'Locked Chats'. Keep it secure.",
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            if (isSet) ...[
+              StellarTextField(controller: oldPassController, hintText: "Old Password", obscureText: true),
+              const SizedBox(height: 12),
+            ],
+            StellarTextField(controller: newPassController, hintText: "New Password", obscureText: true),
+            const SizedBox(height: 12),
+            StellarTextField(controller: confirmPassController, hintText: "Confirm Password", obscureText: true),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () async {
+               final auth = Provider.of<AuthService>(context, listen: false);
+               
+               if (isSet) {
+                 // Verify old
+                 if (oldPassController.text.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter old password")));
+                    return;
+                 }
+                 bool isValid = await auth.verifyPrivacyPassword(oldPassController.text);
+                 if (!isValid) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Incorrect old password")));
+                    return;
+                 }
+               }
+               
+               if (newPassController.text.isEmpty || newPassController.text.length < 4) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Password must be at least 4 characters")));
+                  return;
+               }
+               
+               if (newPassController.text != confirmPassController.text) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Passwords do not match")));
+                  return;
+               }
+               
+               // Save
+               try {
+                 await auth.setPrivacyPassword(newPassController.text);
+                 Navigator.pop(ctx);
+                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Privacy Password Updated!")));
+               } catch (e) {
+                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+               }
+            }, 
+            child: const Text("Save", style: TextStyle(color: Colors.blueAccent))
+          ),
+        ],
       ),
     );
   }

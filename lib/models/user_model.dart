@@ -23,6 +23,7 @@ class UserModel {
   final Map<String, String> chatWallpapers;
   final String? globalWallpaperId;
   final List<String> lockedChatIds;
+  final String? privacyPasswordHash; // Hashed password for locked chats
 
   UserModel({
     required this.uid,
@@ -45,6 +46,7 @@ class UserModel {
     this.chatWallpapers = const {},
     this.globalWallpaperId,
     this.lockedChatIds = const [],
+    this.privacyPasswordHash,
   });
 
   Map<String, dynamic> toMap() {
@@ -69,6 +71,7 @@ class UserModel {
       'chatWallpapers': chatWallpapers,
       'globalWallpaperId': globalWallpaperId,
       'lockedChatIds': lockedChatIds,
+      'privacyPasswordHash': privacyPasswordHash,
     };
   }
 
@@ -93,6 +96,7 @@ class UserModel {
       chatWallpapers: Map<String, String>.from(map['chatWallpapers'] ?? {}),
       globalWallpaperId: map['globalWallpaperId'],
       lockedChatIds: List<String>.from(map['lockedChatIds'] ?? []),
+      privacyPasswordHash: map['privacyPasswordHash'],
     );
   }
 
@@ -117,6 +121,7 @@ class UserModel {
     Map<String, String>? chatWallpapers,
     String? globalWallpaperId,
     List<String>? lockedChatIds,
+    String? privacyPasswordHash,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -138,6 +143,7 @@ class UserModel {
       chatWallpapers: chatWallpapers ?? this.chatWallpapers,
       globalWallpaperId: globalWallpaperId ?? this.globalWallpaperId,
       lockedChatIds: lockedChatIds ?? this.lockedChatIds,
+      privacyPasswordHash: privacyPasswordHash ?? this.privacyPasswordHash,
     );
   }
 }
