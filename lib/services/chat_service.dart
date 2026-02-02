@@ -7,6 +7,13 @@ class ChatService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  // PUBLIC HELPER: Get Chat Room ID
+  String getChatRoomId(String userId, String otherUserId) {
+    List<String> ids = [userId, otherUserId];
+    ids.sort();
+    return ids.join("_");
+  }
+
   // SEND MESSAGE (1-on-1)
   Future<void> sendMessage(String receiverId, String message) async {
     // get current user info
@@ -59,9 +66,7 @@ class ChatService extends ChangeNotifier {
     };
 
     // construct chat room id from current user id and receiver id (sorted to ensure uniqueness)
-    List<String> ids = [currentUserId, receiverId];
-    ids.sort();
-    String chatRoomId = ids.join("_");
+    String chatRoomId = getChatRoomId(currentUserId, receiverId);
 
     // add new message to database
     await _firestore
@@ -71,6 +76,9 @@ class ChatService extends ChangeNotifier {
         .add(newMessage);
         
     // Update chat room metadata for unread counts
+    List<String> ids = [currentUserId, receiverId];
+    ids.sort();
+
     await _firestore.collection('chat_rooms').doc(chatRoomId).set({
       'lastMessage': messageContent, // Store encrypted version in preview too
       'lastMessageTime': timestamp,
@@ -108,11 +116,29 @@ class ChatService extends ChangeNotifier {
   // MARK MESSAGES AS READ
   Future<void> markMessagesAsRead(String chatRoomId) async {
     final String currentUserId = _auth.currentUser!.uid;
-    // Reset unread count for this user, creating doc if missing (though unlikely to have unreads if missing)
+    // Reset unread count for this user
     await _firestore.collection('chat_rooms').doc(chatRoomId).set({
       'unreadCount_$currentUserId': 0,
     }, SetOptions(merge: true));
+
+    // Also mark actual message docs as read (where receiverId == me && isRead == false)
+    // This is needed for the "checks" UI on the sender side
+    var unreadMsgs = await _firestore
+        .collection('chat_rooms')
+        .doc(chatRoomId)
+        .collection('messages')
+        .where('receiverId', isEqualTo: currentUserId)
+        .where('isRead', isEqualTo: false)
+        .get();
+
+    WriteBatch batch = _firestore.batch();
+    for (var doc in unreadMsgs.docs) {
+      batch.update(doc.reference, {'isRead': true});
+    }
+    await batch.commit();
   }
+
+
 
   // CLEAR CHAT HISTORY
   Future<void> clearChat(String userId, String otherUserId) async {
@@ -714,6 +740,42 @@ class ChatService extends ChangeNotifier {
     } else {
       await _firestore.collection('users').doc(currentUserId).update({
         'lockedChatIds': FieldValue.arrayRemove([chatId]),
+      });
+    }
+  }
+
+  // TOGGLE ARCHIVE CHAT
+  Future<void> toggleChatArchive(String chatId, bool archive) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    
+    if (archive) {
+      await _firestore.collection('users').doc(currentUserId).update({
+        'archivedChatIds': FieldValue.arrayUnion([chatId]),
+      });
+    } else {
+      await _firestore.collection('users').doc(currentUserId).update({
+        'archivedChatIds': FieldValue.arrayRemove([chatId]),
+      });
+    }
+  }
+
+  // TOGGLE BEST FRIEND (Singular)
+  Future<void> toggleBestFriend(String friendId) async {
+    final String currentUserId = _auth.currentUser!.uid;
+    
+    // Check current best friend to toggle off if same
+    DocumentSnapshot userDoc = await _firestore.collection('users').doc(currentUserId).get();
+    String? currentBestFriend = (userDoc.data() as Map<String, dynamic>)['bestFriendUid'];
+
+    if (currentBestFriend == friendId) {
+      // Unmark
+      await _firestore.collection('users').doc(currentUserId).update({
+        'bestFriendUid': null,
+      });
+    } else {
+      // Mark (replaces previous)
+      await _firestore.collection('users').doc(currentUserId).update({
+        'bestFriendUid': friendId,
       });
     }
   }

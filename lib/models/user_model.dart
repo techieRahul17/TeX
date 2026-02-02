@@ -23,6 +23,8 @@ class UserModel {
   final Map<String, String> chatWallpapers;
   final String? globalWallpaperId;
   final List<String> lockedChatIds;
+  final List<String> archivedChatIds; // New
+  final String? bestFriendUid; // New
   final String? privacyPasswordHash; // Hashed password for locked chats
 
   UserModel({
@@ -46,6 +48,8 @@ class UserModel {
     this.chatWallpapers = const {},
     this.globalWallpaperId,
     this.lockedChatIds = const [],
+    this.archivedChatIds = const [],
+    this.bestFriendUid,
     this.privacyPasswordHash,
   });
 
@@ -71,6 +75,8 @@ class UserModel {
       'chatWallpapers': chatWallpapers,
       'globalWallpaperId': globalWallpaperId,
       'lockedChatIds': lockedChatIds,
+      'archivedChatIds': archivedChatIds,
+      'bestFriendUid': bestFriendUid,
       'privacyPasswordHash': privacyPasswordHash,
     };
   }
@@ -96,6 +102,8 @@ class UserModel {
       chatWallpapers: Map<String, String>.from(map['chatWallpapers'] ?? {}),
       globalWallpaperId: map['globalWallpaperId'],
       lockedChatIds: List<String>.from(map['lockedChatIds'] ?? []),
+      archivedChatIds: List<String>.from(map['archivedChatIds'] ?? []),
+      bestFriendUid: map['bestFriendUid'],
       privacyPasswordHash: map['privacyPasswordHash'],
     );
   }
@@ -121,6 +129,8 @@ class UserModel {
     Map<String, String>? chatWallpapers,
     String? globalWallpaperId,
     List<String>? lockedChatIds,
+    List<String>? archivedChatIds,
+    String? bestFriendUid,
     String? privacyPasswordHash,
   }) {
     return UserModel(
@@ -143,6 +153,8 @@ class UserModel {
       chatWallpapers: chatWallpapers ?? this.chatWallpapers,
       globalWallpaperId: globalWallpaperId ?? this.globalWallpaperId,
       lockedChatIds: lockedChatIds ?? this.lockedChatIds,
+      archivedChatIds: archivedChatIds ?? this.archivedChatIds,
+      bestFriendUid: bestFriendUid ?? this.bestFriendUid,
       privacyPasswordHash: privacyPasswordHash ?? this.privacyPasswordHash,
     );
   }
