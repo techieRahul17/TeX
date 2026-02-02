@@ -20,6 +20,9 @@ import 'package:texting/services/encryption_service.dart';
 import 'package:texting/screens/link_web_screen.dart';
 import 'package:texting/models/user_model.dart';
 import 'package:texting/screens/locked_chats_screen.dart';
+import 'package:texting/screens/archived_chats_screen.dart';
+
+enum ChatFilter { all, unread, groups }
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,10 +34,14 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final PageController _pageController = PageController();
+  final ChatService _chatService = ChatService();
+  ChatFilter _selectedFilter = ChatFilter.all; // Default filter
+  TextEditingController _searchController = TextEditingController();
 
   @override
   void dispose() {
     _pageController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -159,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
               physics: const NeverScrollableScrollPhysics(), // Disable swipe
               children: [
                 _buildUserList(theme),         // 0: Chats
-                _buildGroupList(theme),        // 1: Groups
+                _buildGroupList(theme, [], []),        // 1: Groups (Placeholder, will be replaced by filter logic)
                 _buildProfileTab(),       // 2: Profile
                 _buildSettingsTab(),      // 3: Settings
               ],
@@ -276,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return Center(child: CircularProgressIndicator(color: theme.primaryColor));
         }
         
-        if (currentUserModel.friends.isEmpty) {
+        if (currentUserModel.friends.isEmpty && _selectedFilter != ChatFilter.groups) {
           // If no friends, still check if we have locked chats to show the button?
           // Actually if friends list is empty, we probably don't have locked chats either unless we unfriended them but kept lock?
           // Let's just show standard empty state but INCLUDE locked chats button if needed.
@@ -306,8 +313,41 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        // Filter out locked chats
-        final visibleFriends = currentUserModel.friends.where((uid) => !currentUserModel.lockedChatIds.contains(uid)).toList();
+        // Filter out locked AND archived chats
+        var visibleFriends = currentUserModel.friends.where((uid) => 
+            !currentUserModel.lockedChatIds.contains(uid) && 
+            !currentUserModel.archivedChatIds.contains(uid)
+        ).toList();
+
+        // 1. Sort: Best Friend First (Base Sort)
+        if (currentUserModel.bestFriendUid != null && visibleFriends.contains(currentUserModel.bestFriendUid)) {
+           visibleFriends.remove(currentUserModel.bestFriendUid);
+           visibleFriends.insert(0, currentUserModel.bestFriendUid!);
+        }
+
+        // 2. Apply Filters
+        if (_selectedFilter == ChatFilter.groups) {
+           // Clear friends list as we only show groups in bottom list? 
+           // Wait, current design has separate lists? No, user list vs group list.
+           // Current design: _buildUserListItem inside ListView.
+           // Groups are maybe mixed or separate?
+           // Ah, checking line 328+: it builds USER items.
+           // Groups are handled by `_buildGroupList`? No, I don't see it.
+           // Wait, previous file view showed `_buildGroupItem` in LockedChats but checking HomeScreen structure...
+           // Search for `Group` in HomeScreen.
+           // Ah, I see `_buildGroupList` is likely a separate widget or section. 
+           // If `visibleFriends` ONLY contains User UIDs, then "Groups" filter should HIDE these and SHOW groups.
+           visibleFriends = []; // HIDE ALL USERS
+        } else if (_selectedFilter == ChatFilter.unread) {
+           // We need unread counts. This is hard because unread count is async in `_buildUserListItem`.
+           // Complex: We can't filter purely on UID list without fetching data.
+           // Compromise: We will filtering INSIDE the builder or fetch all first?
+           // Fetching all is expensive.
+           // User asked for "Show unread messages alone".
+           // This requires restructuring to fetch Stream of ALL chats with unread > 0?
+           // Or, we can let the builder decide visibility (return SizedBox if no unread).
+           // Let's go with builder logic: if filter is unread and count == 0, return SizedBox.
+        }
 
         return Column(
           children: [
@@ -317,21 +357,78 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: _buildLockedChatsButton(theme, currentUserModel.lockedChatIds.length),
                 ),
                 
+             // FILTER CHIPS
+             Padding(
+               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+               child: Row(
+                 mainAxisAlignment: MainAxisAlignment.start, // Align left
+                 children: [
+                   _buildFilterChip("All", ChatFilter.all),
+                   const SizedBox(width: 8),
+                   _buildFilterChip("Unread", ChatFilter.unread),
+                   const SizedBox(width: 8),
+                   _buildFilterChip("Groups", ChatFilter.groups),
+                 ],
+               ),
+             ),
+
+             if (_selectedFilter != ChatFilter.groups && currentUserModel.archivedChatIds.isNotEmpty)
+                Padding(
+                  padding: EdgeInsets.only(top: currentUserModel.lockedChatIds.isEmpty ? 10 : 0, left: 16, right: 16, bottom: 0),
+                  child: _buildArchivedChatsButton(theme, currentUserModel.archivedChatIds.length),
+                ),
+                
              Expanded(
-               child: ListView.builder(
-                padding: EdgeInsets.only(top: currentUserModel.lockedChatIds.isEmpty ? 100 : 10, left: 16, right: 16, bottom: 100), 
-                itemCount: visibleFriends.length,
-                itemBuilder: (context, index) {
-                  final friendUid = visibleFriends[index];
-                  return FutureBuilder<DocumentSnapshot>(
-                    future: FirebaseFirestore.instance.collection('users').doc(friendUid).get(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) return const SizedBox(); 
-                      return _buildUserListItem(snapshot.data!, context, theme, currentUserModel.uid);
-                    },
-                  );
-                },
-              ),
+               child: ListView(
+                  padding: EdgeInsets.only(top: 10, left: 16, right: 16, bottom: 100),
+                  children: [
+                    // 1. GROUPS SECTION (Show if All or Groups)
+                    if (_selectedFilter == ChatFilter.all || _selectedFilter == ChatFilter.groups)
+                      StreamBuilder<QuerySnapshot>(
+                        stream: _chatService.getGroupsStream(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox();
+                          
+                          var docs = snapshot.data!.docs.where((d) => 
+                              !currentUserModel.lockedChatIds.contains(d.id) && 
+                              !currentUserModel.archivedChatIds.contains(d.id)
+                          ).toList();
+                          
+                          if (docs.isEmpty) return const SizedBox();
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                               // Optional Header if needed, but clean look prefers simple mix
+                               ...docs.map((doc) => _buildGroupListItem(doc, context, theme)).toList(),
+                            ],
+                          );
+                        }
+                      ),
+
+                    // 2. USERS SECTION (Show if All or Unread)
+                    // Note: If filter is Groups, we HIDE users.
+                    if (_selectedFilter != ChatFilter.groups)
+                      ...visibleFriends.map((friendUid) {
+                        return FutureBuilder<DocumentSnapshot>(
+                          future: FirebaseFirestore.instance.collection('users').doc(friendUid).get(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData) return const SizedBox(); 
+                            // Pass filter to item to handle "unread only" visibility internally
+                            return _buildUserListItem(snapshot.data!, context, theme, currentUserModel, filter: _selectedFilter);
+                          },
+                        );
+                      }).toList(),
+                      
+                    // Empty State for Filter
+                    if (_selectedFilter == ChatFilter.groups && 
+                        // We can't easily check if groups stream is empty here synchronously.
+                        // But users are hidden.
+                        false 
+                        ) 
+                        const SizedBox(),
+                  ],
+               ),
              ),
           ],
         );
@@ -339,13 +436,40 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildFilterChip(String label, ChatFilter filter) {
+    bool isSelected = _selectedFilter == filter;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _selectedFilter = filter);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? StellarTheme.primaryNeon : Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? StellarTheme.primaryNeon : Colors.white10),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.black : Colors.white70,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+
+
+
   // Helper to build list item with StreamBuilder for specific chat data (unread count)
-  Widget _buildUserListItem(DocumentSnapshot document, BuildContext context, ThemeData theme, String currentUserId) {
+  Widget _buildUserListItem(DocumentSnapshot document, BuildContext context, ThemeData theme, UserModel currentUserModel, {ChatFilter filter = ChatFilter.all}) {
     Map<String, dynamic> data = document.data()! as Map<String, dynamic>;
     String name = data['displayName'] ?? data['email'].split('@')[0];
     String about = data['about'] ?? "I am TeXtingg!!!!";
     String otherUserId = data['uid'] ?? document.id;
-    String currentUserId = FirebaseAuth.instance.currentUser!.uid;
+    String currentUserId = currentUserModel.uid;
 
     // Construct Chat Room ID
     List<String> ids = [currentUserId, otherUserId];
@@ -384,115 +508,186 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.03),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.05)),
-          ),
-          child: ListTile(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ChatScreen(
-                    receiverUserEmail: data['email'],
-                    receiverUserID: otherUserId,
-                    receiverName: name,
-                    isGroup: false,
+        if (filter == ChatFilter.unread && !hasUnread) return const SizedBox(); // Hide if filter is Unread and no unreads
+
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ChatScreen(
+                  receiverUserEmail: data['email'],
+                  receiverUserID: otherUserId,
+                  receiverName: name,
+                  isGroup: false,
+                ),
+              ),
+            );
+          },
+          onLongPress: () {
+             _showChatOptions(context, otherUserId, name, isBestFriend: currentUserId != null && currentUserModel.bestFriendUid == otherUserId, hasUnread: hasUnread);
+          },
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.03),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withOpacity(0.05)),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              leading: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  // THEME-CONSISTENT GRADIENT
+                  gradient: LinearGradient(
+                      colors: [theme.primaryColor, theme.colorScheme.secondary],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: theme.primaryColor.withOpacity(0.3),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                    ),
                   ),
                 ),
-              );
-            },
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                // THEME-CONSISTENT GRADIENT
-                gradient: LinearGradient(
-                    colors: [theme.primaryColor, theme.colorScheme.secondary],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.primaryColor.withOpacity(0.3),
-                    blurRadius: 8,
+              ),
+              title: Row(
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      color: StellarTheme.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
+                  if (currentUserModel.bestFriendUid == otherUserId) ...[
+                     const SizedBox(width: 8),
+                     const Icon(Icons.star, color: Colors.amber, size: 16),
+                  ]
                 ],
               ),
-              child: Center(
-                child: Text(
-                  name.isNotEmpty ? name[0].toUpperCase() : '?',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                  ),
-                ),
+              subtitle: FutureBuilder<String>(
+                future: EncryptionService().decryptMessage(lastMsg, data['publicKey'] ?? ""),
+                builder: (context, snapshot) {
+                   String text = snapshot.data ?? lastMsg;
+                   // Sanitize
+                   if (text.length > 30) text = "${text.substring(0, 30)}...";
+                   return Text(
+                    text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: hasUnread ? Colors.white : StellarTheme.textSecondary,
+                      fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 13,
+                    ),
+                  );
+                }
               ),
-            ),
-            title: Text(
-              name,
-              style: const TextStyle(
-                color: StellarTheme.textPrimary,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-            subtitle: FutureBuilder<String>(
-              future: EncryptionService().decryptMessage(lastMsg, data['publicKey'] ?? ""),
-              builder: (context, snapshot) {
-                 String text = snapshot.data ?? lastMsg;
-                 text = _sanitizeMessageText(text); // Sanitize
-                 if (text.length > 30) text = "${text.substring(0, 30)}...";
-                 return Text(
-                  text,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: hasUnread ? Colors.white : StellarTheme.textSecondary,
-                    fontWeight: hasUnread ? FontWeight.bold : FontWeight.normal,
-                    fontSize: 13,
-                  ),
-                );
-              }
-            ),
 
-            trailing: hasUnread 
-                ? Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: theme.primaryColor,
-                      shape: BoxShape.circle,
+              trailing: hasUnread 
+                  ? Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: theme.primaryColor,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        unreadCount.toString(),
+                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ) 
+                  : (isMe 
+                      ? Icon(
+                          Icons.done_all, 
+                          size: 18, 
+                          color: isSeen ? Colors.blueAccent : Colors.grey
+                        )
+                      : null
                     ),
-                    child: Text(
-                      unreadCount.toString(),
-                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                  ) 
-                : (isMe 
-                    ? Icon(
-                        Icons.done_all, 
-                        size: 18, 
-                        color: isSeen ? Colors.blueAccent : Colors.grey
-                      )
-                    : null
-                  ),
-            onLongPress: () {
-               _showLockOption(context, otherUserId, name);
-            },
+            ),
           ),
-        ).animate().fadeIn().slideX();
+        ).animate().fadeIn().slideX(); // Note: Animation might jump if filtered, consider Key
       },
     );
   }
   
-  void _showLockOption(BuildContext context, String chatId, String name) {
-    showDialog(
+  void _showChatOptions(BuildContext context, String chatId, String name, {bool isBestFriend = false, bool hasUnread = false}) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: StellarTheme.cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Options for $name", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            
+            // Mark as Read Option
+            if (hasUnread)
+            ListTile(
+              leading: const Icon(Icons.mark_chat_read, color: Colors.greenAccent),
+              title: const Text("Mark as Read", style: TextStyle(color: Colors.white)),
+              onTap: () async {
+                 Navigator.pop(ctx);
+                 await ChatService().markMessagesAsRead(ChatService().getChatRoomId(FirebaseAuth.instance.currentUser!.uid, chatId));
+              },
+            ),
+
+            ListTile(
+              leading: Icon(isBestFriend ? Icons.star : Icons.star_border, color: Colors.amber),
+              title: Text(isBestFriend ? "Unmark Best Friend" : "Mark as Best Friend", style: const TextStyle(color: Colors.white)),
+              onTap: () async {
+                 Navigator.pop(ctx);
+                 await ChatService().toggleBestFriend(chatId);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.archive, color: Colors.blueAccent),
+              title: const Text("Archive Chat", style: TextStyle(color: Colors.white)),
+              onTap: () async {
+                 Navigator.pop(ctx);
+                 await ChatService().toggleChatArchive(chatId, true);
+              },
+            ),
+            ListTile(
+              leading: Icon(PhosphorIcons.lockKey(), color: Colors.redAccent),
+              title: const Text("Lock Chat", style: TextStyle(color: Colors.white)),
+              onTap: () {
+                 Navigator.pop(ctx);
+                 // Call the dialog logic directly or refactor. 
+                 // Since _showLockOption was a dialog, we can just show a simpler confirmation here or just do it?
+                 // Let's show confirmation for Lock as it's sensitive.
+                 Future.delayed(const Duration(milliseconds: 200), () {
+                    if (mounted) _showLockConfirmation(context, chatId, name);
+                 });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showLockConfirmation(BuildContext context, String chatId, String name) {
+     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: StellarTheme.cardColor,
@@ -503,7 +698,6 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(
             onPressed: () async {
                Navigator.pop(ctx);
-               // Add to locked chats
                await ChatService().toggleChatLock(chatId, true);
             }, 
             child: const Text("Lock", style: TextStyle(color: Colors.blueAccent))
@@ -511,6 +705,39 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildArchivedChatsButton(ThemeData theme, int count) {
+     return GestureDetector(
+         onTap: () {
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const ArchivedChatsScreen()));
+         },
+       child: Container(
+         margin: const EdgeInsets.only(bottom: 12),
+         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+         decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+         ),
+         child: Row(
+           children: [
+             const Icon(Icons.archive, color: Colors.blueAccent),
+             const SizedBox(width: 12),
+             const Text("Archived Chats", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+             const Spacer(),
+             Container(
+               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+               decoration: BoxDecoration(
+                 color: Colors.blueAccent.withOpacity(0.2),
+                 borderRadius: BorderRadius.circular(10),
+               ),
+               child: Text("$count chats", style: TextStyle(color: Colors.blueAccent, fontSize: 12)),
+             )
+           ],
+         ),
+       ),
+     );
   }
 
   Widget _buildLockedChatsButton(ThemeData theme, int count) {
@@ -655,7 +882,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // --- 2. GROUPS LIST (with Invitations) ---
-  Widget _buildGroupList(ThemeData theme) {
+  Widget _buildGroupList(ThemeData theme, List<String> lockedIds, List<String> archivedIds) {
     final ChatService chatService = ChatService();
     
     return SingleChildScrollView(
@@ -707,9 +934,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
               final docs = snapshot.data!.docs;
               
-              // Filter Locked Groups
+              // Filter Locked and Archived Groups
               final userModel = Provider.of<AuthService>(context, listen: false).currentUserModel;
-              final visibleDocs = docs.where((doc) => !(userModel?.lockedChatIds.contains(doc.id) ?? false)).toList();
+              final visibleDocs = docs.where((doc) => 
+                  !(userModel?.lockedChatIds.contains(doc.id) ?? false) &&
+                  !(userModel?.archivedChatIds.contains(doc.id) ?? false)
+              ).toList();
               
               // Sort by createdAt descending (newest first)
               visibleDocs.sort((a, b) {
@@ -744,7 +974,7 @@ class _HomeScreenState extends State<HomeScreen> {
               }
 
               return Column(
-                children: visibleDocs.map((doc) => _buildGroupCard(doc, context, theme)).toList(),
+                children: visibleDocs.map((doc) => _buildGroupListItem(doc, context, theme)).toList(),
               );
             },
           ),
@@ -830,7 +1060,7 @@ class _HomeScreenState extends State<HomeScreen> {
      );
   }
 
-  Widget _buildGroupCard(DocumentSnapshot doc, BuildContext context, ThemeData theme) {
+  Widget _buildGroupListItem(DocumentSnapshot doc, BuildContext context, ThemeData theme) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     String groupName = data['name'] ?? "Group";
     Map<String, dynamic> recentMsg = data['recentMessage'] ?? {};
@@ -916,7 +1146,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ) 
             : null,
         onLongPress: () {
-          _showLockOption(context, doc.id, groupName);
+          _showChatOptions(context, doc.id, groupName);
         },
       ),
     ).animate().fadeIn().slideX();

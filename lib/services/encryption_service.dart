@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class EncryptionService {
   static final EncryptionService _instance = EncryptionService._internal();
@@ -47,6 +49,20 @@ class EncryptionService {
 
       _myKeyPair = keyPair;
       _myPublicKeyBase64 = base64Encode(publicKeyBytes);
+      
+      // SYNC TO FIRESTORE (Critical Fix)
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'publicKey': _myPublicKeyBase64,
+          }, SetOptions(merge: true));
+          debugPrint("✅ Public Key Synced to Firestore");
+        }
+      } catch (e) {
+        debugPrint("⚠️ Failed to sync Public Key to Firestore: $e");
+      }
+      
       debugPrint("🔐 EncryptionService: New Keys Generated");
     }
   }
@@ -57,7 +73,7 @@ class EncryptionService {
   Future<String> encryptMessage(String plaintext, String receiverPublicKeyBase64) async {
     if (_myKeyPair == null) await init();
 
-    debugPrint("🔒 Encrypting message: '$plaintext'");
+    // debugPrint("🔒 Encrypting message...");
 
     // 1. Parse receiver public key
     final receiverPublicKeyBytes = base64Decode(receiverPublicKeyBase64);
@@ -81,7 +97,6 @@ class EncryptionService {
     // 4. Return as single string
     final combined = secretBox.concatenation(); 
     final cipherText = base64Encode(combined);
-    debugPrint("   -> CipherText: ${cipherText.substring(0, 10)}...");
     return cipherText;
   }
 
@@ -120,23 +135,20 @@ class EncryptionService {
       return clearText;
 
     } catch (e) {
+      // Catch MAC errors (Key Mismatch)
       if (e.toString().contains("SecretBoxAuthenticationError") || e.toString().contains("MAC")) {
-         // This typically happens when keys are rotated but old messages remain.
-         // checking for 'plaintext' fallback first:
-         // If it's just a plain string (not base64), it might be legacy or system message.
-         // But for now, returning a safe placeholder is better than crashing or spamming logs.
-         // debugPrint("⚠️ Decryption Warning: Old key interaction.");
-         
-         // Fix: If it looks like a normal message, return it. If it's truly garbage/encrypted, return placeholder.
-         // But we can't easily know. 
-         // Strategy: If we fail to decrypt, we return the content as is. 
-         // If it was ciphertext, it will look like garbage in UI, but won't be a giant Red Error.
-         // Better yet, return a cleaner "Secure Message" string if it's definitely ciphertext.
-         return encryptedContent; // Fallback to content so if it was actually plaintext it shows.
+         // Return placeholder instead of garbage ciphertext
+         return "🔒 Encrypted/Legacy Message"; 
       }
       
-      // Graceful Fallback: If decryption fails (e.g. it's plaintext), return original
-      return encryptedContent;
+      // Fallback: It might be a plain text message from before encryption was ON.
+      // If it's valid UTF8, maybe? But safely returning original is standard "best effort".
+      // But for "Perfect" implementation, we prefer clarity.
+      if (encryptedContent.length < 50 && !encryptedContent.contains('=')) {
+          // Heuristic: Short string, no equals sign, maybe just text?
+          return encryptedContent;
+      }
+      return "🔒 Encrypted Message";
     }
   }
 
@@ -182,11 +194,15 @@ class EncryptionService {
       
       return utf8.decode(clearTextBytes);
     } catch (e) {
-      if (e.toString().contains("SecretBoxAuthenticationError")) {
-          return encryptedContent;
+      if (e.toString().contains("SecretBoxAuthenticationError") || e.toString().contains("MAC")) {
+          // Placeholder for Group Messages
+          return "🔒 Encrypted Group Message";
       }
       // Graceful Fallback for Groups too
-      return encryptedContent;
+      if (encryptedContent.length < 50 && !encryptedContent.contains('=')) {
+          return encryptedContent;
+      }
+      return "🔒 Encrypted Content";
     }
   }
 
