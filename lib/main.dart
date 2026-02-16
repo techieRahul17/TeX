@@ -5,8 +5,10 @@ import 'package:provider/provider.dart';
 import 'package:texting/config/theme.dart';
 import 'package:texting/config/wallpapers.dart';
 import 'package:texting/firebase_options.dart';
+import 'package:texting/screens/app_lock_screen.dart';
 import 'package:texting/screens/auth_screen.dart';
 import 'package:texting/screens/home_screen.dart';
+import 'package:texting/services/app_lock_service.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:texting/services/chat_service.dart';
 
@@ -27,19 +29,45 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => ChatService()),
+        ChangeNotifierProvider(create: (_) => AppLockService()),
       ],
       child: const MyApp(),
     ),
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
   @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+  
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      // App went to background
+      Provider.of<AppLockService>(context, listen: false).lockApp();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Consumer<AuthService>(
-      builder: (context, authService, _) {
+    return Consumer2<AuthService, AppLockService>(
+      builder: (context, authService, appLockService, _) {
         final user = authService.currentUserModel;
         
         // Determine Theme based on Global Wallpaper
@@ -50,7 +78,16 @@ class MyApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           title: 'TeX',
           theme: StellarTheme.createTheme(wallpaper),
-          home: const AuthWrapper(),
+          home: Stack(
+            children: [
+              const AuthWrapper(),
+              // Overlay Lock Screen if locked
+               if (appLockService.isLocked)
+                 const Positioned.fill(
+                   child: AppLockScreen(),
+                 ),
+            ],
+          ),
         );
       },
     );

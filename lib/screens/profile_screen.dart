@@ -12,6 +12,8 @@ import 'package:texting/services/chat_service.dart';
 import 'package:texting/widgets/stellar_textfield.dart';
 import 'package:texting/models/user_model.dart';
 import 'package:country_code_picker/country_code_picker.dart';
+import 'package:texting/services/app_lock_service.dart';
+import 'package:texting/screens/app_lock_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String userId;
@@ -591,9 +593,91 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ],
                             _buildChipList(_hobbies, (item) => setState(() => _hobbies.remove(item)), theme),
 
-                            // PRIVACY & SECURITY
+                             // PRIVACY & SECURITY
                              if (widget.isSelf) ...[
                                 _buildSectionTitle("Privacy & Security", PhosphorIcons.lockKey(), theme),
+                                
+                                // App Lock Settings
+                                Consumer<AppLockService>(
+                                  builder: (context, appLock, _) {
+                                    return Column(
+                                      children: [
+                                        ListTile(
+                                          contentPadding: EdgeInsets.zero,
+                                          leading: Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(color: theme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                            child: Icon(
+                                              appLock.isEnabled ? PhosphorIcons.lockKeyOpen() : PhosphorIcons.lockKey(), 
+                                              color: appLock.isEnabled ? Colors.green : theme.iconTheme.color
+                                            ),
+                                          ),
+                                          title: const Text("App Lock", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                          subtitle: Text(appLock.isEnabled ? "On" : "Off", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                                          trailing: Switch(
+                                            value: appLock.isEnabled, 
+                                            activeColor: theme.primaryColor,
+                                            onChanged: (value) {
+                                              if (value) {
+                                                // Enable
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (context) => AppLockScreen(
+                                                      isSetup: true,
+                                                      onSuccess: () {
+                                                        // Navigator.pop(context); // AppLockScreen pops itself or we do it? 
+                                                        // In AppLockScreen logic: if onSuccess provided, it calls it. 
+                                                        // It does NOT pop if onSuccess is provided in setup mode? 
+                                                        // Let's check AppLockScreen logic. 
+                                                        // Logic: if onSuccess != null, call it. else pop.
+                                                        // So we should pop here.
+                                                        Navigator.pop(context);
+                                                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("App Lock Enabled")));
+                                                      },
+                                                      onCancel: () => Navigator.pop(context),
+                                                    ),
+                                                  ),
+                                                );
+                                              } else {
+                                                // Disable - Require Auth
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (context) => AppLockScreen(
+                                                      isSetup: false,
+                                                      onSuccess: () {
+                                                        appLock.disableLock();
+                                                        Navigator.pop(context);
+                                                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("App Lock Disabled")));
+                                                      },
+                                                      onCancel: () => Navigator.pop(context),
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                        
+                                        if (appLock.isEnabled)
+                                          ListTile(
+                                            contentPadding: const EdgeInsets.only(left: 16),
+                                            title: const Text("Use Biometrics", style: TextStyle(color: Colors.white)),
+                                            subtitle: const Text("Unlock with FaceID / Fingerprint", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                                            trailing: Switch(
+                                              value: appLock.isBiometricEnabled,
+                                              activeColor: theme.primaryColor,
+                                              onChanged: (value) => appLock.setBiometricEnabled(value),
+                                            ),
+                                          ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                                
+                                const Divider(color: Colors.white24),
+
                                 Consumer<AuthService>(
                                   builder: (context, auth, _) {
                                      bool isSet = auth.currentUserModel?.privacyPasswordHash != null;
@@ -605,7 +689,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                          child: Icon(isSet ? PhosphorIcons.checkCircle() : PhosphorIcons.warningCircle(), color: isSet ? Colors.green : Colors.orange),
                                        ),
                                        title: const Text("Locked Chats Password", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                       subtitle: Text(isSet ? "Active (Tap to Change)" : "Not Set (Tap to Setup)", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                       subtitle: Text(isSet ? "Active (Change)" : "Not Set (Setup)", style: const TextStyle(color: Colors.white70, fontSize: 12)),
                                        trailing: const Icon(Icons.chevron_right, color: Colors.white54),
                                        onTap: () => _showSetPrivacyPasswordDialog(context, isSet),
                                      );
