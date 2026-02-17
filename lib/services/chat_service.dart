@@ -416,68 +416,81 @@ class ChatService extends ChangeNotifier {
       if (groupDoc.exists) {
         Map<String, dynamic> data = groupDoc.data() as Map<String, dynamic>;
         Map<String, dynamic> keys = data['keys'] ?? {};
-        
+        String adminId = data['admin'];
+
+        // Helper to regenerate keys
+        Future<void> regenerateGroupKeys() async {
+           debugPrint("⚠️ Group Key Invalid/Missing. Regenerating for all members...");
+           String newGroupKey = await EncryptionService().generateSymmetricKey();
+           List<dynamic> memberIds = data['members'] ?? [];
+           Map<String, String> newKeysMap = {};
+
+           // Distribute to all members
+           for (var memberId in memberIds) {
+              try {
+                DocumentSnapshot memberDoc = await _firestore.collection('users').doc(memberId).get();
+                if (memberDoc.exists) {
+                  String? pubKey = (memberDoc.data() as Map<String, dynamic>)['publicKey'];
+                  if (pubKey != null && pubKey.isNotEmpty) {
+                     newKeysMap[memberId] = await EncryptionService().encryptKeyForMember(newGroupKey, pubKey);
+                  }
+                }
+              } catch (e) {
+                debugPrint("Failed to distribute key to $memberId: $e");
+              }
+           }
+
+           // Save keys to group
+           if (newKeysMap.isNotEmpty) {
+              await _firestore.collection('groups').doc(groupId).update({'keys': newKeysMap});
+              keys = newKeysMap; // Update local keys map to use immediately
+              
+              // Now we can get OUR key
+              String? myEncryptedKey = keys[currentUserId];
+              if (myEncryptedKey != null) {
+                  String groupKey = await EncryptionService().decryptKey(myEncryptedKey);
+                  messageContent = await EncryptionService().encryptSymmetric(message, groupKey);
+                  debugPrint("✅ Group Key Regenerated and Message Encrypted.");
+              }
+           }
+        }
 
         // Check if this is an encrypted group (has keys)
         if (keys.isEmpty) {
-          // --- AUTO-CORRECTION / LAZY MIGRATION ---
-          // If the group has no keys (legacy or failed creation), generate them NOW.
-          debugPrint("⚠️ Group $groupId has no keys. Auto-generating...");
-
-          String newGroupKey = await EncryptionService().generateSymmetricKey();
-          List<dynamic> memberIds = data['members'] ?? [];
-          Map<String, String> newKeysMap = {};
-
-          // Distribute to all members
-          for (var memberId in memberIds) {
-             try {
-               DocumentSnapshot memberDoc = await _firestore.collection('users').doc(memberId).get();
-               if (memberDoc.exists) {
-                 String? pubKey = (memberDoc.data() as Map<String, dynamic>)['publicKey'];
-                 if (pubKey != null && pubKey.isNotEmpty) {
-                    newKeysMap[memberId] = await EncryptionService().encryptKeyForMember(newGroupKey, pubKey);
-                 }
-               }
-             } catch (e) {
-               debugPrint("Failed to distribute key to $memberId: $e");
-             }
-          }
-
-          // Save keys to group
-          if (newKeysMap.isNotEmpty) {
-             await _firestore.collection('groups').doc(groupId).update({'keys': newKeysMap});
-             keys = newKeysMap; // Update local keys map to use immediately
-             debugPrint("✅ Auto-generated keys for ${newKeysMap.length} members.");
-          }
-        }
-        
-        if (keys.isNotEmpty) {
+           await regenerateGroupKeys();
+        } 
+        else {
            String? myEncryptedKey = keys[currentUserId];
            if (myEncryptedKey != null) {
-              String groupKey = await EncryptionService().decryptKey(myEncryptedKey);
-              if (groupKey.isNotEmpty) {
-                 // Encrypt!
-                 messageContent = await EncryptionService().encryptSymmetric(message, groupKey);
-              } else {
-                 throw Exception("Failed to decrypt group key");
+              try {
+                  String groupKey = await EncryptionService().decryptKey(myEncryptedKey);
+                  if (groupKey.isNotEmpty) {
+                     // Encrypt!
+                     messageContent = await EncryptionService().encryptSymmetric(message, groupKey);
+                  } else {
+                     throw Exception("Decryption returned empty key");
+                  }
+              } catch (e) {
+                  debugPrint("❌ Failed to decrypt group key: $e");
+                  // If I am Admin, I can fix this!
+                  if (currentUserId == adminId) {
+                      await regenerateGroupKeys();
+                  } else {
+                      throw Exception("Start a new group or ask Admin to re-add you (Security Changed).");
+                  }
               }
            } else {
-              // I am a member but have no key? Try to self-heal specifically for ME if I am the sender?
-              // Only if I have my private key (which I do).
-              // Actually, if keys exist but NOT for me, I assume I'm not authorized or it's out of sync.
-              // For now, fail safe.
-              throw Exception("Encryption key missing for this user. Ask admin to re-add you.");
+              // I am a member but have no key?
+              if (currentUserId == adminId) {
+                  await regenerateGroupKeys(); // Admin can always fix
+              } else {
+                  throw Exception("Encryption key missing. Ask admin to re-add you.");
+              }
            }
-        } else {
-           // Still empty after attempt? Then we must block or allow? 
-           // If we couldn't generate keys (e.g. no public keys found), we MUST NOT send plaintext.
-           throw Exception("Critical: Could not establish encryption for this group.");
         }
       }
     } catch (e) {
       debugPrint("Group Encryption Failed: $e");
-      // If we failed to encypt in an encrypted group, DO NOT SEND PLAINTEXT.
-      // We must rethrow to alert the UI.
       rethrow;
     }
 

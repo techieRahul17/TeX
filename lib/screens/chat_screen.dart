@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/widgets/chat_bubble.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data'; 
 import 'package:share_plus/share_plus.dart';
 import 'package:texting/screens/group_info_screen.dart';
@@ -58,6 +59,10 @@ class _ChatScreenState extends State<ChatScreen> {
   
   // Group State
   String? _groupKey;
+  StreamSubscription<DocumentSnapshot>? _groupSubscription; // Added Subscription
+
+  // Stream State
+  late Stream<QuerySnapshot> _messagesStream;
 
   // Emoji & GIF State
   bool _isEmojiVisible = false;
@@ -93,14 +98,20 @@ class _ChatScreenState extends State<ChatScreen> {
       _checkReceiverPrivacy();
       _markAsRead();
       _loadReceiverData();
+      _messagesStream = _chatService.getMessages(
+        widget.receiverUserID,
+        _auth.currentUser!.uid,
+      );
     } else {
-      _loadGroupKey();
+      _listenToGroupKey(); // Changed from _loadGroupKey to _listenToGroupKey
+      _messagesStream = _chatService.getGroupMessages(widget.receiverUserID);
     }
   }
 
   @override
   void dispose() {
     _focusNode.dispose();
+    _groupSubscription?.cancel(); // Cancel subscription
     super.dispose();
   }
 
@@ -208,28 +219,34 @@ class _ChatScreenState extends State<ChatScreen> {
      }
   }
 
-  Future<void> _loadGroupKey() async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('groups').doc(widget.receiverUserID).get();
+  void _listenToGroupKey() {
+    _groupSubscription = FirebaseFirestore.instance
+        .collection('groups')
+        .doc(widget.receiverUserID)
+        .snapshots()
+        .listen((doc) async {
       if (doc.exists) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        Map<String, dynamic> keys = data['keys'] ?? {};
-        String? myEncryptedKey = keys[_auth.currentUser!.uid];
-        
-        if (myEncryptedKey != null) {
-          String key = await EncryptionService().decryptKey(myEncryptedKey);
-          setState(() {
-            _groupKey = key;
-            _isLoadingKey = false;
-          });
-        } else {
-           setState(() => _isLoadingKey = false);
+        try {
+          Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+          Map<String, dynamic> keys = data['keys'] ?? {};
+          String? myEncryptedKey = keys[_auth.currentUser!.uid];
+
+          if (myEncryptedKey != null) {
+            String key = await EncryptionService().decryptKey(myEncryptedKey);
+            if (mounted) {
+              setState(() {
+                _groupKey = key;
+                _isLoadingKey = false;
+              });
+            }
+          } else {
+            if (mounted) setState(() => _isLoadingKey = false);
+          }
+        } catch (e) {
+          debugPrint("Error processing group key update: $e");
         }
       }
-    } catch (e) {
-      debugPrint("Error loading group key: $e");
-      setState(() => _isLoadingKey = false);
-    }
+    });
   }
 
 
@@ -677,18 +694,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // BUILD MESSAGE LIST
   Widget _buildMessageList(WallpaperOption wallpaper, ThemeData theme) {
-    Stream<QuerySnapshot> stream;
-    if (widget.isGroup) {
-      stream = _chatService.getGroupMessages(widget.receiverUserID);
-    } else {
-      stream = _chatService.getMessages(
-        widget.receiverUserID,
-        _auth.currentUser!.uid,
-      );
-    }
-
     return StreamBuilder(
-      stream: stream,
+      stream: _messagesStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
@@ -697,8 +704,19 @@ class _ChatScreenState extends State<ChatScreen> {
           return Center(child: CircularProgressIndicator(color: theme.primaryColor));
         }
 
-        // Auto Scroll on new message
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+        // Auto Scroll on new message (only if at bottom or first load)
+        // Ideally we compare snapshot data, but simple post-frame is okay if stream updates
+        // BUT calling setState or animateTo in build is risky.
+        // Better: Use a listener on the stream in initState if we want "event" based, 
+        // OR just simple check:
+        // if (snapshot.hasData) { ... }
+        
+        // Simple "stick to bottom" if we were already there
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+           if (_scrollController.hasClients && _scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 100) {
+             _scrollToBottom();
+           }
+        });
 
         return ListView(
           controller: _scrollController,
@@ -787,7 +805,7 @@ class _ChatScreenState extends State<ChatScreen> {
         final bool isLikelyCiphertext = messageText.length > 50 && !messageText.contains(" ") && RegExp(r'^[a-zA-Z0-9+/]+={0,2}$').hasMatch(messageText);
         
         if (isLikelyCiphertext) {
-           messageText = "🔒 Secure Message (Key not found)";
+           messageText = "🔒 Encrypted (Key Changed)";
         }
 
         // GIF/Image Detection
@@ -1094,7 +1112,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return await EncryptionService().decryptMessage(content, _receiverPublicKey!);
     } catch (e) {
       // Fallback to content if decryption fails (e.g. it was actually plaintext)
-      return content;
+      return "🔒 Encrypted (Key Changed)";
     }
   }
 
