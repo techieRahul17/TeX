@@ -76,6 +76,9 @@ class _ChatScreenState extends State<ChatScreen> {
   // Media Menu State
   bool _areMediaOptionsVisible = false;
 
+  // Message Filtering
+  String? _filterUserId;
+
 
   @override
   void initState() {
@@ -485,6 +488,21 @@ class _ChatScreenState extends State<ChatScreen> {
                     });
                   },
                 ),
+              // Filter Button (Group Only)
+              if (widget.isGroup && !_isSearching)
+                IconButton(
+                  icon: Icon(
+                    _filterUserId != null ? Icons.filter_list_off : Icons.filter_list,
+                    color: _filterUserId != null ? theme.primaryColor : Colors.white
+                  ),
+                  onPressed: () {
+                    if (_filterUserId != null) {
+                      setState(() => _filterUserId = null);
+                    } else {
+                      _showFilterDialog();
+                    }
+                  },
+                ),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.white),
                 onSelected: (value) async {
@@ -692,6 +710,74 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _showFilterDialog() async {
+     // Fetch group members
+     try {
+       final groupDoc = await FirebaseFirestore.instance.collection('groups').doc(widget.receiverUserID).get();
+       if (!groupDoc.exists) return;
+       
+       List<dynamic> memberIds = groupDoc.data()?['members'] ?? [];
+       
+       if (!mounted) return;
+
+       showModalBottomSheet(
+         context: context,
+         backgroundColor: Colors.transparent,
+         builder: (context) => Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "Filter by User",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(height: 10),
+                Expanded( // Use Flexible/Expanded if list is long
+                   child: ListView.builder(
+                     shrinkWrap: true,
+                     itemCount: memberIds.length,
+                     itemBuilder: (context, index) {
+                        String uid = memberIds[index];
+                        return FutureBuilder<DocumentSnapshot>(
+                          future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData) return const SizedBox.shrink();
+                            var userData = snapshot.data!.data() as Map<String, dynamic>;
+                            String name = userData['username'] ?? userData['email'];
+                            
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                                child: Text(name[0].toUpperCase(), style: TextStyle(color: Theme.of(context).primaryColor)),
+                              ),
+                              title: Text(name, style: const TextStyle(color: Colors.white)),
+                              onTap: () {
+                                setState(() {
+                                  _filterUserId = uid;
+                                });
+                                Navigator.pop(context);
+                              },
+                            );
+                          },
+                        );
+                     },
+                   ),
+                ),
+              ],
+            ),
+         ),
+       );
+
+     } catch (e) {
+       debugPrint("Error fetching members for filter: $e");
+     }
+  }
+
   // BUILD MESSAGE LIST
   Widget _buildMessageList(WallpaperOption wallpaper, ThemeData theme) {
     return StreamBuilder(
@@ -722,6 +808,10 @@ class _ChatScreenState extends State<ChatScreen> {
           controller: _scrollController,
           padding: const EdgeInsets.only(top: 100, bottom: 20),
           children: snapshot.data!.docs
+              .where((doc) {
+                 if (_filterUserId == null) return true;
+                 return (doc.data() as Map<String, dynamic>)['senderId'] == _filterUserId;
+              })
               .map((doc) => _buildMessageItem(doc, wallpaper, theme))
               .toList(),
         );

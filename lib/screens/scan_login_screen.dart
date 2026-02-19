@@ -143,33 +143,33 @@ class _ScanLoginScreenState extends State<ScanLoginScreen> with SingleTickerProv
       
       final authService = Provider.of<AuthService>(context, listen: false);
       
-      // Creating a mock device payload
-      String deviceName = "Web Client-${code.substring(0, 4)}"; 
+      // Parse Code: Assume it's just the Session ID for now
+      // If we decide to encode more data (like "TEXTING_WEB:SESSION_ID"), we should parse it here.
+      // Current implementation in WebLoginScreen just generates a random string.
+      String sessionId = code;
       
-      await authService.linkDevice(code, {
-        'name': deviceName,
-        'os': "Windows 11", // Mock OS
-        'browser': "Chrome", // Mock Browser
-        'ip': "192.168.1.10",
-        'location': "Unknown",
-      });
+      await authService.approveWebLogin(sessionId);
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Row(
             children: [
-              const Icon(Icons.check_circle, color: Colors.green),
-              const SizedBox(width: 10),
-              Text("Linked $deviceName successfully!"),
+              Icon(Icons.check_circle, color: Colors.green),
+              SizedBox(width: 10),
+              Text("Web Login Approved!"),
             ],
           ),
           backgroundColor: Colors.black87,
         ),
       );
       
-      Navigator.pop(context); // Go back to LinkWithWebScreen
+      Navigator.pop(context); // Go back
+
+      
+      // Navigator.pop already called above, so we don't need to do anything else here.
+      // The previous code block had a duplicate Navigator.pop and SnackBar with undefined deviceName.
 
     } catch (e) {
       if (!mounted) return;

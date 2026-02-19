@@ -129,8 +129,8 @@ class LinkWithWebScreen extends StatelessWidget {
                       onPressed: () {
                         Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanLoginScreen()));
                       },
-                      icon: const Icon(Icons.add),
-                      label: const Text("Link a Device"),
+                      icon: const Icon(PhosphorIconsBold.qrCode),
+                      label: const Text("Link with QR Code"),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
                         foregroundColor: Colors.white,
@@ -138,6 +138,19 @@ class LinkWithWebScreen extends StatelessWidget {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         elevation: 10,
                         shadowColor: primaryColor.withOpacity(0.4),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                   SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      onPressed: () => _showManualCodeDialog(context),
+                      icon: const Icon(PhosphorIconsBold.keyboard),
+                      label: const Text("Link with Code"),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
                     ),
                   ),
@@ -321,6 +334,83 @@ class LinkWithWebScreen extends StatelessWidget {
         ),
       ),
     ).animate().fadeIn().slideX();
+  }
+
+  void _showManualCodeDialog(BuildContext context) {
+    final TextEditingController controller = TextEditingController();
+    final theme = Theme.of(context);
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Enter Code", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Enter the code displayed on your computer screen.",
+              style: TextStyle(color: Colors.white54, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, letterSpacing: 2, fontSize: 18, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.05),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                hintText: "XXXXXXXX",
+                hintStyle: TextStyle(color: Colors.white.withOpacity(0.2)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel", style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (controller.text.isNotEmpty) {
+                try {
+                  Navigator.pop(ctx); // Close dialog
+                  // Show loading
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Linking..."), backgroundColor: theme.primaryColor),
+                  );
+                  
+                  await Provider.of<AuthService>(context, listen: false).approveWebLogin(controller.text.trim());
+                  
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green),
+                          SizedBox(width: 10),
+                          Text("Web Login Approved!"),
+                        ],
+                      ),
+                      backgroundColor: Colors.black87,
+                    ),
+                  );
+                } catch (e) {
+                   ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                   ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Failed: ${e.toString().replaceAll('Exception:', '')}")),
+                  );
+                }
+              }
+            },
+            child: Text("Link Device", style: TextStyle(color: theme.primaryColor, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -285,4 +285,64 @@ class EncryptionService {
       return "";
     }
   }
+
+  // --- EPHEMERAL KEYS FOR WEB LOGIN ---
+
+  // Generate a fresh key pair (returns Base64 strings)
+  Future<Map<String, String>> generateEphemeralKeys() async {
+    final keyPair = await _keyExchangeAlgorithm.newKeyPair();
+    final privateKeyBytes = await keyPair.extractPrivateKeyBytes();
+    final publicKey = await keyPair.extractPublicKey();
+    final publicKeyBytes = publicKey.bytes;
+
+    return {
+      'private': base64Encode(privateKeyBytes),
+      'public': base64Encode(publicKeyBytes),
+    };
+  }
+
+  // Decrypt with a specific Private Key (for Web Login)
+  Future<String> decryptWithPrivateKey(String encryptedContent, String senderPublicKeyBase64, String privateKeyBase64, String myPublicKeyBase64) async {
+    try {
+      final privateKeyBytes = base64Decode(privateKeyBase64);
+      final myPublicKeyBytes = base64Decode(myPublicKeyBase64);
+      final senderPublicKeyBytes = base64Decode(senderPublicKeyBase64); // Sender's Public Key (Mobile)
+      
+      // Construct local KeyPair
+      final keyPair = SimpleKeyPairData(
+        privateKeyBytes,
+        publicKey: SimplePublicKey(myPublicKeyBytes, type: KeyPairType.x25519),
+        type: KeyPairType.x25519,
+      );
+      
+      // Construct remote Key
+      final senderPublicKey = SimplePublicKey(senderPublicKeyBytes, type: KeyPairType.x25519);
+
+      // Derive shared secret
+      final sharedSecretKey = await _keyExchangeAlgorithm.sharedSecretKey(
+        keyPair: keyPair,
+        remotePublicKey: senderPublicKey,
+      );
+      final secretKeyBytes = await sharedSecretKey.extractBytes();
+
+      // Decrypt
+      final combined = base64Decode(encryptedContent);
+      final secretBox = SecretBox.fromConcatenation(
+        combined,
+        nonceLength: 12,
+        macLength: 16,
+      );
+
+      final algorithm = Chacha20.poly1305Aead();
+      final clearTextBytes = await algorithm.decrypt(
+        secretBox,
+        secretKey: SecretKey(secretKeyBytes),
+      );
+      
+      return utf8.decode(clearTextBytes);
+    } catch (e) {
+      debugPrint("Web Login Decryption Failed: $e");
+      return "";
+    }
+  }
 }
