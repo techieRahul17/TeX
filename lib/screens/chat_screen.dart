@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 import 'package:texting/screens/profile_screen.dart';
 import 'package:texting/widgets/chat_bubble.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data'; 
 import 'package:share_plus/share_plus.dart';
 import 'package:texting/screens/group_info_screen.dart';
@@ -58,6 +59,10 @@ class _ChatScreenState extends State<ChatScreen> {
   
   // Group State
   String? _groupKey;
+  StreamSubscription<DocumentSnapshot>? _groupSubscription; // Added Subscription
+
+  // Stream State
+  late Stream<QuerySnapshot> _messagesStream;
 
   // Emoji & GIF State
   bool _isEmojiVisible = false;
@@ -70,6 +75,9 @@ class _ChatScreenState extends State<ChatScreen> {
   
   // Media Menu State
   bool _areMediaOptionsVisible = false;
+
+  // Message Filtering
+  String? _filterUserId;
 
 
   @override
@@ -93,14 +101,20 @@ class _ChatScreenState extends State<ChatScreen> {
       _checkReceiverPrivacy();
       _markAsRead();
       _loadReceiverData();
+      _messagesStream = _chatService.getMessages(
+        widget.receiverUserID,
+        _auth.currentUser!.uid,
+      );
     } else {
-      _loadGroupKey();
+      _listenToGroupKey(); // Changed from _loadGroupKey to _listenToGroupKey
+      _messagesStream = _chatService.getGroupMessages(widget.receiverUserID);
     }
   }
 
   @override
   void dispose() {
     _focusNode.dispose();
+    _groupSubscription?.cancel(); // Cancel subscription
     super.dispose();
   }
 
@@ -208,28 +222,34 @@ class _ChatScreenState extends State<ChatScreen> {
      }
   }
 
-  Future<void> _loadGroupKey() async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('groups').doc(widget.receiverUserID).get();
+  void _listenToGroupKey() {
+    _groupSubscription = FirebaseFirestore.instance
+        .collection('groups')
+        .doc(widget.receiverUserID)
+        .snapshots()
+        .listen((doc) async {
       if (doc.exists) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        Map<String, dynamic> keys = data['keys'] ?? {};
-        String? myEncryptedKey = keys[_auth.currentUser!.uid];
-        
-        if (myEncryptedKey != null) {
-          String key = await EncryptionService().decryptKey(myEncryptedKey);
-          setState(() {
-            _groupKey = key;
-            _isLoadingKey = false;
-          });
-        } else {
-           setState(() => _isLoadingKey = false);
+        try {
+          Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+          Map<String, dynamic> keys = data['keys'] ?? {};
+          String? myEncryptedKey = keys[_auth.currentUser!.uid];
+
+          if (myEncryptedKey != null) {
+            String key = await EncryptionService().decryptKey(myEncryptedKey);
+            if (mounted) {
+              setState(() {
+                _groupKey = key;
+                _isLoadingKey = false;
+              });
+            }
+          } else {
+            if (mounted) setState(() => _isLoadingKey = false);
+          }
+        } catch (e) {
+          debugPrint("Error processing group key update: $e");
         }
       }
-    } catch (e) {
-      debugPrint("Error loading group key: $e");
-      setState(() => _isLoadingKey = false);
-    }
+    });
   }
 
 
@@ -468,6 +488,21 @@ class _ChatScreenState extends State<ChatScreen> {
                     });
                   },
                 ),
+              // Filter Button (Group Only)
+              if (widget.isGroup && !_isSearching)
+                IconButton(
+                  icon: Icon(
+                    _filterUserId != null ? Icons.filter_list_off : Icons.filter_list,
+                    color: _filterUserId != null ? theme.primaryColor : Colors.white
+                  ),
+                  onPressed: () {
+                    if (_filterUserId != null) {
+                      setState(() => _filterUserId = null);
+                    } else {
+                      _showFilterDialog();
+                    }
+                  },
+                ),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.white),
                 onSelected: (value) async {
@@ -675,20 +710,78 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _showFilterDialog() async {
+     // Fetch group members
+     try {
+       final groupDoc = await FirebaseFirestore.instance.collection('groups').doc(widget.receiverUserID).get();
+       if (!groupDoc.exists) return;
+       
+       List<dynamic> memberIds = groupDoc.data()?['members'] ?? [];
+       
+       if (!mounted) return;
+
+       showModalBottomSheet(
+         context: context,
+         backgroundColor: Colors.transparent,
+         builder: (context) => Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "Filter by User",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(height: 10),
+                Expanded( // Use Flexible/Expanded if list is long
+                   child: ListView.builder(
+                     shrinkWrap: true,
+                     itemCount: memberIds.length,
+                     itemBuilder: (context, index) {
+                        String uid = memberIds[index];
+                        return FutureBuilder<DocumentSnapshot>(
+                          future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData) return const SizedBox.shrink();
+                            var userData = snapshot.data!.data() as Map<String, dynamic>;
+                            String name = userData['username'] ?? userData['email'];
+                            
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                                child: Text(name[0].toUpperCase(), style: TextStyle(color: Theme.of(context).primaryColor)),
+                              ),
+                              title: Text(name, style: const TextStyle(color: Colors.white)),
+                              onTap: () {
+                                setState(() {
+                                  _filterUserId = uid;
+                                });
+                                Navigator.pop(context);
+                              },
+                            );
+                          },
+                        );
+                     },
+                   ),
+                ),
+              ],
+            ),
+         ),
+       );
+
+     } catch (e) {
+       debugPrint("Error fetching members for filter: $e");
+     }
+  }
+
   // BUILD MESSAGE LIST
   Widget _buildMessageList(WallpaperOption wallpaper, ThemeData theme) {
-    Stream<QuerySnapshot> stream;
-    if (widget.isGroup) {
-      stream = _chatService.getGroupMessages(widget.receiverUserID);
-    } else {
-      stream = _chatService.getMessages(
-        widget.receiverUserID,
-        _auth.currentUser!.uid,
-      );
-    }
-
     return StreamBuilder(
-      stream: stream,
+      stream: _messagesStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
@@ -697,13 +790,28 @@ class _ChatScreenState extends State<ChatScreen> {
           return Center(child: CircularProgressIndicator(color: theme.primaryColor));
         }
 
-        // Auto Scroll on new message
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+        // Auto Scroll on new message (only if at bottom or first load)
+        // Ideally we compare snapshot data, but simple post-frame is okay if stream updates
+        // BUT calling setState or animateTo in build is risky.
+        // Better: Use a listener on the stream in initState if we want "event" based, 
+        // OR just simple check:
+        // if (snapshot.hasData) { ... }
+        
+        // Simple "stick to bottom" if we were already there
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+           if (_scrollController.hasClients && _scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 100) {
+             _scrollToBottom();
+           }
+        });
 
         return ListView(
           controller: _scrollController,
           padding: const EdgeInsets.only(top: 100, bottom: 20),
           children: snapshot.data!.docs
+              .where((doc) {
+                 if (_filterUserId == null) return true;
+                 return (doc.data() as Map<String, dynamic>)['senderId'] == _filterUserId;
+              })
               .map((doc) => _buildMessageItem(doc, wallpaper, theme))
               .toList(),
         );
@@ -787,7 +895,7 @@ class _ChatScreenState extends State<ChatScreen> {
         final bool isLikelyCiphertext = messageText.length > 50 && !messageText.contains(" ") && RegExp(r'^[a-zA-Z0-9+/]+={0,2}$').hasMatch(messageText);
         
         if (isLikelyCiphertext) {
-           messageText = "🔒 Secure Message (Key not found)";
+           messageText = "🔒 Encrypted (Key Changed)";
         }
 
         // GIF/Image Detection
@@ -1094,7 +1202,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return await EncryptionService().decryptMessage(content, _receiverPublicKey!);
     } catch (e) {
       // Fallback to content if decryption fails (e.g. it was actually plaintext)
-      return content;
+      return "🔒 Encrypted (Key Changed)";
     }
   }
 

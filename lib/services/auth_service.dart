@@ -7,11 +7,13 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import '../models/user_model.dart';
 import 'encryption_service.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
   
   UserModel? _currentUserModel;
   UserModel? get currentUserModel => _currentUserModel;
@@ -54,6 +56,8 @@ class AuthService extends ChangeNotifier {
       );
       // Ensure user document exists
       await _saveUserToFirestore(userCredential.user!);
+      // Save credentials locally for Web Login
+      await _storeCredentials(email, password);
       return userCredential;
     } on FirebaseAuthException catch (e) {
       throw Exception(e.code);
@@ -69,6 +73,8 @@ class AuthService extends ChangeNotifier {
       );
       // Save user to Firestore
       await _saveUserToFirestore(userCredential.user!);
+      // Save credentials locally for Web Login
+      await _storeCredentials(email, password);
       return userCredential;
     } on FirebaseAuthException catch (e) {
       throw Exception(e.code);
@@ -97,6 +103,21 @@ class AuthService extends ChangeNotifier {
     } catch (e) {
       debugPrint("Google Sign In Error: $e");
       throw Exception(e.toString());
+    }
+  }
+
+  // Sign In with Google Token (For Web Linking)
+  Future<UserCredential> signInWithGoogleToken(String idToken, String? accessToken) async {
+    try {
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        idToken: idToken,
+        accessToken: accessToken?.isEmpty == true ? null : accessToken,
+      );
+      UserCredential userCredential = await _auth.signInWithCredential(credential);
+      await _saveUserToFirestore(userCredential.user!);
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      throw Exception(e.code);
     }
   }
 
@@ -464,5 +485,96 @@ class AuthService extends ChangeNotifier {
     final String hashString = base64Encode(hash.bytes);
 
     return hashString == _currentUserModel!.privacyPasswordHash;
+  }
+
+  // --- WEB QR LOGIN SUPPORT ---
+
+  Future<void> _storeCredentials(String email, String password) async {
+    // Check if email already has prefix, if so, don't add it again (defensive)
+    // Actually simplicity: Just store raw email/password.
+    // The PREFIX is added at transmission time in `approveWebLogin`.
+    await _storage.write(key: 'auth_email', value: email);
+    await _storage.write(key: 'auth_password', value: password);
+  }
+
+  Future<Map<String, String>?> _getStoredCredentials() async {
+    String? email = await _storage.read(key: 'auth_email');
+    String? password = await _storage.read(key: 'auth_password');
+    if (email != null && password != null) {
+      return {'email': email, 'password': password};
+    }
+    return null;
+  }
+
+  // WEB SIDE: Generate Session & Listen
+  Stream<DocumentSnapshot> startWebLoginSession(String sessionId, String publicKeyBase64) {
+    // Create Session Doc
+    _firestore.collection('web_logins').doc(sessionId).set({
+      'publicKey': publicKeyBase64,
+      'status': 'pending',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    
+    // Return Stream
+    return _firestore.collection('web_logins').doc(sessionId).snapshots();
+  }
+
+  // MOBILE SIDE: Approve Login
+  Future<void> approveWebLogin(String sessionId) async {
+    // 1. Get Session Doc
+    final doc = await _firestore.collection('web_logins').doc(sessionId).get();
+    if (!doc.exists) throw Exception("Invalid Session Code");
+    
+    final data = doc.data() as Map<String, dynamic>;
+    if (data['status'] != 'pending') throw Exception("Session already used or expired");
+    
+    final String webPublicKey = data['publicKey'];
+
+    // 2. Get Credentials
+    String payload = "";
+    
+    final creds = await _getStoredCredentials();
+    if (creds != null) {
+       payload = "EMAIL:${creds['email']}:${creds['password']}";
+    } else {
+       // Check for Google Auth
+       final user = _auth.currentUser;
+       if (user != null && user.providerData.any((p) => p.providerId == 'google.com')) {
+          try {
+            // Attempt to get fresh tokens
+            // Note: signInSilently might return null if not previously signed in on this device instance session
+            // forcing re-auth might be needed if null, but we can't show UI here easily.
+            // But usually if they are logged in Firebase, they have a cached token in Google Sign In if used?
+            // Actually, if they used `signInWithGoogle` in this app, `_googleSignIn` should manage it.
+            
+            GoogleSignInAccount? googleUser = _googleSignIn.currentUser;
+            googleUser ??= await _googleSignIn.signInSilently();
+            
+            if (googleUser != null) {
+              final auth = await googleUser.authentication;
+              if (auth.idToken != null) {
+                payload = "GOOGLE:${auth.idToken}:${auth.accessToken ?? ''}";
+              }
+            }
+          } catch (e) {
+            debugPrint("Google Token Retrieval Failed: $e");
+          }
+       }
+    }
+
+    if (payload.isEmpty) {
+      throw Exception("No stored credentials or Google session found. Please re-login on phone.");
+    }
+    
+    // 3. Encrypt Payload
+    final encryptedPayload = await EncryptionService().encryptMessage(payload, webPublicKey);
+    
+    // 4. Update Doc
+    await _firestore.collection('web_logins').doc(sessionId).update({
+      'encryptedPayload': encryptedPayload,
+      'status': 'approved',
+      'approvedBy': _auth.currentUser?.uid,
+      'senderPublicKey': EncryptionService().myPublicKey,
+    });
   }
 }

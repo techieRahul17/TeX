@@ -8,6 +8,9 @@ import 'package:texting/config/wallpapers.dart';
 import 'package:texting/services/auth_service.dart';
 import 'package:texting/widgets/stellar_textfield.dart';
 
+import 'package:flutter/foundation.dart'; // For kIsWeb
+import 'package:texting/screens/web_login_screen.dart';
+
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -97,6 +100,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return const WebLoginScreen();
+    }
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
