@@ -8,6 +8,7 @@ import 'package:cryptography/cryptography.dart';
 import '../models/user_model.dart';
 import 'encryption_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -18,15 +19,23 @@ class AuthService extends ChangeNotifier {
   UserModel? _currentUserModel;
   UserModel? get currentUserModel => _currentUserModel;
   StreamSubscription<DocumentSnapshot>? _userSubscription;
+  StreamSubscription<DocumentSnapshot>? _sessionSubscription;
+  String? _currentWebSessionId;
 
   // Stream of auth changes
   Stream<User?> get user => _auth.authStateChanges();
 
   AuthService() {
+    _initWebSession();
+
     // Listen to auth changes to start/stop user stream
     _auth.authStateChanges().listen((User? user) {
       _userSubscription?.cancel();
+      _sessionSubscription?.cancel();
       if (user != null) {
+        if (_currentWebSessionId != null) {
+           _listenToSession();
+        }
         _userSubscription = _firestore
             .collection('users')
             .doc(user.uid)
@@ -42,6 +51,58 @@ class AuthService extends ChangeNotifier {
         notifyListeners();
       }
     });
+  }
+
+  Future<void> _initWebSession() async {
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      final val = prefs.getString('web_session_id');
+      if (val != null) {
+        _currentWebSessionId = val;
+        if (_auth.currentUser != null) {
+            _listenToSession();
+        }
+      }
+    } else {
+      _storage.read(key: 'web_session_id').then((val) {
+        if (val != null) {
+          _currentWebSessionId = val;
+          if (_auth.currentUser != null) {
+              _listenToSession();
+          }
+        }
+      });
+    }
+  }
+
+  Future<void> setWebSessionId(String sessionId) async {
+    _currentWebSessionId = sessionId;
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('web_session_id', sessionId);
+    } else {
+      await _storage.write(key: 'web_session_id', value: sessionId);
+    }
+    _listenToSession();
+  }
+
+  void _listenToSession() {
+    _sessionSubscription?.cancel();
+    final user = _auth.currentUser;
+    if (user != null && _currentWebSessionId != null) {
+      _sessionSubscription = _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('sessions')
+          .doc(_currentWebSessionId)
+          .snapshots()
+          .listen((snapshot) {
+        if (!snapshot.exists) {
+          // Session was removed by mobile app! Log out the web app.
+          signOut();
+        }
+      });
+    }
   }
 
   // Current User
@@ -341,6 +402,15 @@ class AuthService extends ChangeNotifier {
       debugPrint("Google Sign Out Error: $e");
     }
     await _auth.signOut();
+    
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('web_session_id');
+    } else {
+      await _storage.delete(key: 'web_session_id');
+    }
+    _currentWebSessionId = null;
+    _sessionSubscription?.cancel();
   }
   // --- Phone Number Verification ---
 
@@ -507,11 +577,12 @@ class AuthService extends ChangeNotifier {
   }
 
   // WEB SIDE: Generate Session & Listen
-  Stream<DocumentSnapshot> startWebLoginSession(String sessionId, String publicKeyBase64) {
+  Stream<DocumentSnapshot> startWebLoginSession(String sessionId, String publicKeyBase64, {String deviceName = "Web Browser"}) {
     // Create Session Doc
     _firestore.collection('web_logins').doc(sessionId).set({
       'publicKey': publicKeyBase64,
       'status': 'pending',
+      'deviceName': deviceName,
       'createdAt': FieldValue.serverTimestamp(),
     });
     
@@ -569,7 +640,14 @@ class AuthService extends ChangeNotifier {
     // 3. Encrypt Payload
     final encryptedPayload = await EncryptionService().encryptMessage(payload, webPublicKey);
     
-    // 4. Update Doc
+    // 4. Link Device FIRST so web listener doesn't trigger signOut on missing document
+    String deviceName = data['deviceName'] ?? "Web Browser";
+    await linkDevice(sessionId, {
+       'name': deviceName,
+       'os': 'Web',
+    });
+
+    // 5. Update Doc to trigger web login
     await _firestore.collection('web_logins').doc(sessionId).update({
       'encryptedPayload': encryptedPayload,
       'status': 'approved',

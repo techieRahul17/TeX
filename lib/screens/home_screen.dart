@@ -21,6 +21,7 @@ import 'package:texting/screens/link_web_screen.dart';
 import 'package:texting/models/user_model.dart';
 import 'package:texting/screens/locked_chats_screen.dart';
 import 'package:texting/screens/archived_chats_screen.dart';
+import 'dart:async';
 
 enum ChatFilter { all, unread, groups }
 
@@ -37,11 +38,65 @@ class _HomeScreenState extends State<HomeScreen> {
   final ChatService _chatService = ChatService();
   ChatFilter _selectedFilter = ChatFilter.all; // Default filter
   TextEditingController _searchController = TextEditingController();
+  StreamSubscription<QuerySnapshot>? _sessionAlertSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _listenForNewWebSessions();
+  }
+
+  void _listenForNewWebSessions() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _sessionAlertSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('sessions')
+        .snapshots()
+        .listen((snapshot) {
+      // Find newly added sessions
+      for (var change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final data = change.doc.data();
+          if (data != null && data['os'] == 'Web') {
+            final Timestamp? createdAt = data['createdAt'] as Timestamp?;
+            final now = Timestamp.now();
+            
+            // Only alert for sessions created within the last 1 minute 
+            // to avoid spamming alerts on initial app load for old sessions
+            if (createdAt != null && now.seconds - createdAt.seconds < 60) {
+              final deviceName = data['name'] ?? "Web Browser";
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(
+                      children: [
+                        Icon(PhosphorIcons.desktop(), color: Colors.white),
+                        const SizedBox(width: 12),
+                        Expanded(child: Text("New login detected: $deviceName", style: const TextStyle(fontWeight: FontWeight.bold))),
+                      ],
+                    ),
+                    backgroundColor: Theme.of(context).primaryColor,
+                    duration: const Duration(seconds: 4),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                );
+              }
+            }
+          }
+        }
+      }
+    });
+  }
 
   @override
   void dispose() {
     _pageController.dispose();
     _searchController.dispose();
+    _sessionAlertSubscription?.cancel();
     super.dispose();
   }
 
