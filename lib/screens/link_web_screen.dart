@@ -7,6 +7,7 @@ import 'package:texting/screens/scan_login_screen.dart';
 import 'package:texting/services/auth_service.dart';
 import 'dart:ui';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LinkWithWebScreen extends StatelessWidget {
   const LinkWithWebScreen({super.key});
@@ -216,11 +217,14 @@ class LinkWithWebScreen extends StatelessWidget {
                                     ).animate().fadeIn();
                                   }
                                   
+                                  // Take only the top 5 devices
+                                  final topDevices = devices.take(5).toList();
+
                                   return ListView.builder(
                                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                                    itemCount: devices.length,
+                                    itemCount: topDevices.length,
                                     itemBuilder: (context, index) {
-                                      final device = devices[index];
+                                      final device = topDevices[index];
                                       return _buildSessionItem(context, device, authService, primaryColor);
                                     },
                                   );
@@ -247,91 +251,45 @@ class LinkWithWebScreen extends StatelessWidget {
     if (device['os'].toString().toLowerCase().contains('mac')) icon = PhosphorIcons.laptop();
     
     // Format Time
-    // Timestamp lastActive = device['lastActive'] ?? Timestamp.now();
-    // String timeStr = DateFormat.jm().format(lastActive.toDate()); 
-    // Using simple "Active now" or date for now
-    String status = "Active";
+    var createdAt = device['createdAt'];
+    String timeStr = "Active Session";
+    if (createdAt != null && createdAt is Timestamp) {
+      timeStr = "Linked on ${DateFormat('MMM d, h:mm a').format(createdAt.toDate())}";
+    }
 
-    return Dismissible(
-      key: Key(device['id']),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        color: Colors.redAccent,
-        child: const Icon(Icons.delete, color: Colors.white),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
-      confirmDismiss: (direction) async {
-        return await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF1E1E1E),
-            title: const Text("Log out device?", style: TextStyle(color: Colors.white)),
-            content: Text("Are you sure you want to log out from '${device['name']}'?", style: const TextStyle(color: Colors.white70)),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Log Out", style: TextStyle(color: Colors.red))),
-            ],
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: primaryColor, size: 24),
           ),
-        );
-      },
-      onDismissed: (direction) {
-        authService.unlinkDevice(device['id']);
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: primaryColor, size: 24),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(device['name'] ?? "Unknown Device", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 2),
+                Text(
+                  timeStr,
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+              ],
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(device['name'] ?? "Unknown Device", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                  const SizedBox(height: 2),
-                  Text(
-                    "Windows • Chrome", // Could be dynamic
-                    style: TextStyle(color: Colors.white38, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: () async {
-                 bool? confirm = await showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    backgroundColor: const Color(0xFF1E1E1E),
-                    title: const Text("Log out device?", style: TextStyle(color: Colors.white)),
-                     content: Text("Are you sure you want to log out from '${device['name']}'?", style: const TextStyle(color: Colors.white70)),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Log Out", style: TextStyle(color: Colors.red))),
-                    ],
-                  ),
-                );
-                if (confirm == true) {
-                  authService.unlinkDevice(device['id']);
-                }
-              }, 
-              icon: Icon(PhosphorIcons.signOut(), color: Colors.redAccent.withOpacity(0.7), size: 20)
-            )
-          ],
-        ),
+          ),
+        ],
       ),
     ).animate().fadeIn().slideX();
   }

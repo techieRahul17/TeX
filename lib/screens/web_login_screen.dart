@@ -25,6 +25,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
   StreamSubscription? _subscription;
   bool _isApproved = false;
   bool _isManualCode = false;
+  final TextEditingController _deviceNameController = TextEditingController();
 
   @override
   void initState() {
@@ -35,7 +36,17 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
   @override
   void dispose() {
     _subscription?.cancel();
+    _deviceNameController.dispose();
     super.dispose();
+  }
+
+  void _updateDeviceName(String name) {
+    if (_sessionId.isNotEmpty) {
+      FirebaseFirestore.instance
+          .collection('web_logins')
+          .doc(_sessionId)
+          .update({'deviceName': name});
+    }
   }
 
   void _startSession() async {
@@ -51,7 +62,11 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
 
     // 3. Start Listening
     final authService = Provider.of<AuthService>(context, listen: false);
-    _subscription = authService.startWebLoginSession(_sessionId, _publicKey).listen((snapshot) async {
+    _subscription = authService.startWebLoginSession(
+      _sessionId, 
+      _publicKey, 
+      deviceName: _deviceNameController.text.trim().isEmpty ? "Web Browser" : _deviceNameController.text.trim()
+    ).listen((snapshot) async {
        if (!snapshot.exists) return;
        final data = snapshot.data() as Map<String, dynamic>;
        
@@ -99,6 +114,9 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
        
        final parts = decrypted.split(':');
        if (parts.length >= 2) {
+         final authService = Provider.of<AuthService>(context, listen: false);
+         await authService.setWebSessionId(_sessionId);
+
          String type = parts[0];
          
          if (type == "EMAIL" && parts.length >= 3) {
@@ -174,6 +192,23 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
                        _buildStep("2", "Go to Settings > Link Device"),
                        _buildStep("3", "Tap on Link Device"),
                        _buildStep("4", "Scan the code on the right"),
+                       const SizedBox(height: 30),
+                       const Text("Device Name", style: TextStyle(color: Colors.white70)),
+                       const SizedBox(height: 8),
+                       TextField(
+                         controller: _deviceNameController,
+                         style: const TextStyle(color: Colors.white),
+                         decoration: InputDecoration(
+                           filled: true,
+                           fillColor: Colors.white.withOpacity(0.1),
+                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                           hintText: "E.g., My Office Mac",
+                           hintStyle: TextStyle(color: Colors.white24),
+                         ),
+                         onChanged: (val) {
+                           _updateDeviceName(val.trim().isEmpty ? "Web Browser" : val.trim());
+                         },
+                       ),
                      ],
                    ),
                  ),
