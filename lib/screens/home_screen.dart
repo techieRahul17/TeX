@@ -406,9 +406,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Column(
           children: [
+             const SizedBox(height: 100), // Push content below the transparent AppBar
+             
              if (currentUserModel.lockedChatIds.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(top: 100, left: 16, right: 16, bottom: 0),
+                  padding: const EdgeInsets.only(left: 16, right: 16, bottom: 0),
                   child: _buildLockedChatsButton(theme, currentUserModel.lockedChatIds.length),
                 ),
                 
@@ -429,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
              if (_selectedFilter != ChatFilter.groups && currentUserModel.archivedChatIds.isNotEmpty)
                 Padding(
-                  padding: EdgeInsets.only(top: currentUserModel.lockedChatIds.isEmpty ? 10 : 0, left: 16, right: 16, bottom: 0),
+                  padding: const EdgeInsets.only(top: 10, left: 16, right: 16, bottom: 0),
                   child: _buildArchivedChatsButton(theme, currentUserModel.archivedChatIds.length),
                 ),
                 
