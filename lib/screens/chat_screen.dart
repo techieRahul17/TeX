@@ -1026,10 +1026,15 @@ class _ChatScreenState extends State<ChatScreen> {
                         child: document.metadata.hasPendingWrites 
                             ? const Icon(Icons.access_time, size: 12, color: Colors.white54)
                             : (!widget.isGroup 
-                                ? Icon(
-                                    Icons.done_all,
-                                    size: 16,
-                                    color: (data['isRead'] ?? false) ? theme.primaryColor : Colors.white30,
+                                ? Builder(
+                                    builder: (context) {
+                                      final currentUserModel = Provider.of<AuthService>(context, listen: false).currentUserModel;
+                                      return Icon(
+                                        Icons.done_all,
+                                        size: 16,
+                                        color: ((data['isRead'] ?? false) && (currentUserModel?.isReadReceiptsEnabled ?? true)) ? theme.primaryColor : Colors.white30,
+                                      );
+                                    }
                                   )
                                 : const SizedBox.shrink() // Group chats don't show ticks on list yet (only info)
                               ),

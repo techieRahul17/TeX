@@ -121,6 +121,17 @@ class ChatService extends ChangeNotifier {
       'unreadCount_$currentUserId': 0,
     }, SetOptions(merge: true));
 
+    // Check Privacy Settings before sending read receipts
+    final userDoc = await _firestore.collection('users').doc(currentUserId).get();
+    bool sendReceipts = true; // Default
+    if (userDoc.exists) {
+      sendReceipts = userDoc.data()?['isReadReceiptsEnabled'] ?? true;
+    }
+
+    if (!sendReceipts) {
+      return; // Do not mark actual messages as read if receipts are disabled
+    }
+
     // Also mark actual message docs as read (where receiverId == me && isRead == false)
     // This is needed for the "checks" UI on the sender side
     var unreadMsgs = await _firestore
@@ -133,7 +144,7 @@ class ChatService extends ChangeNotifier {
 
     WriteBatch batch = _firestore.batch();
     for (var doc in unreadMsgs.docs) {
-      batch.update(doc.reference, {'isRead': true});
+      batch.update(doc.reference, {'isRead': true, 'readAt': FieldValue.serverTimestamp()});
     }
     await batch.commit();
   }
