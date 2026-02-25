@@ -673,7 +673,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ? Icon(
                           Icons.done_all, 
                           size: 18, 
-                          color: isSeen ? Colors.blueAccent : Colors.grey
+                          color: (isSeen && currentUserModel.isReadReceiptsEnabled) ? Colors.blueAccent : Colors.grey
                         )
                       : null
                     ),
