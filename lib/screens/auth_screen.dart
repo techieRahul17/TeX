@@ -22,8 +22,10 @@ class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
+  final TextEditingController _otpController = TextEditingController();
   bool isLogin = true;
   bool isLoading = false;
+  bool isOtpSent = false;
 
   void _authenticate() async {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -60,17 +62,55 @@ class _AuthScreenState extends State<AuthScreen> {
           _passwordController.text,
         );
       } else {
-        await authService.signUp(
-          _emailController.text,
-          _passwordController.text,
-        );
+        if (!isOtpSent) {
+          // Attempt to send OTP first
+          bool otpSent = await authService.sendEmailOTP(_emailController.text);
+          if (otpSent) {
+             if (mounted) {
+               setState(() {
+                 isOtpSent = true;
+                 isLoading = false;
+               });
+               ScaffoldMessenger.of(context).showSnackBar(
+                 const SnackBar(content: Text('OTP sent to your email. Please verify to continue.')),
+               );
+             }
+             return;
+          } else {
+             throw Exception('Failed to send OTP. Please check your email and try again.');
+          }
+        } else {
+           if (_otpController.text.isEmpty) {
+             throw Exception('Please enter the OTP sent to your email');
+           }
+           await authService.signUp(
+             _emailController.text,
+             _passwordController.text,
+             verificationOtp: _otpController.text.trim()
+           );
+           
+           if (mounted) {
+               setState(() {
+                   isOtpSent = false;
+                   _otpController.clear();
+               });
+               ScaffoldMessenger.of(context).showSnackBar(
+                   const SnackBar(content: Text('Registration successful!')),
+               );
+           }
+        }
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
+        SnackBar(content: Text(e.toString().replaceAll("Exception: ", ""))),
       );
-    } finally {
       if (mounted) {
+        setState(() {
+           isLoading = false;
+        });
+      }
+    } finally {
+      if (mounted && isLoading) {
         setState(() {
           isLoading = false;
         });
@@ -206,6 +246,19 @@ class _AuthScreenState extends State<AuthScreen> {
                                   onFieldSubmitted: (_) => _authenticate(),
                                 ),
                               ],
+                              if (!isLogin && isOtpSent) ...[
+                                const SizedBox(height: 16),
+                                StellarTextField(
+                                  controller: _otpController,
+                                  hintText: "Enter 6-digit OTP",
+                                  obscureText: false,
+                                  prefixIcon: Icon(
+                                    PhosphorIcons.key(),
+                                    color: StellarTheme.textSecondary,
+                                  ),
+                                  onFieldSubmitted: (_) => _authenticate(),
+                                ),
+                              ],
                               const SizedBox(height: 32),
                               isLoading
                                   ? const Center(
@@ -242,7 +295,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                               child: Text(
                                                 isLogin
                                                     ? "Sign In"
-                                                    : "Create Account",
+                                                    : (isOtpSent ? "Verify & Register" : "Send OTP"),
                                                 style: const TextStyle(
                                                   fontSize: 16,
                                                   fontWeight: FontWeight.bold,
@@ -308,6 +361,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             onTap: () {
                               setState(() {
                                 isLogin = !isLogin;
+                                isOtpSent = false; // Reset state when toggling
                               });
                             },
                             child: Text(

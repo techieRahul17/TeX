@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:email_otp/email_otp.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
@@ -115,30 +116,80 @@ class AuthService extends ChangeNotifier {
         email: email,
         password: password,
       );
+      
+      // Check if email is verified
+      if (!userCredential.user!.emailVerified) {
+        // Send it again just in case they need it
+        await userCredential.user!.sendEmailVerification();
+        // We sign them out so they can't access the app
+        await _auth.signOut();
+        throw Exception('email-not-verified');
+      }
+
       // Ensure user document exists
       await _saveUserToFirestore(userCredential.user!);
       // Save credentials locally for Web Login
       await _storeCredentials(email, password);
       return userCredential;
     } on FirebaseAuthException catch (e) {
-      throw Exception(e.code);
+      if (e.code == 'invalid-credential') {
+        throw Exception('Invalid email or password.');
+      }
+      throw Exception(e.message ?? e.code);
+    } catch (e) {
+      // Catch our custom 'email-not-verified' exception
+      if (e.toString().contains('email-not-verified')) {
+        throw Exception('Please verify your email address. A new verification link has been sent to your inbox.');
+      }
+      throw Exception(e.toString());
     }
   }
 
-  // Sign Up with Email/Password
-  Future<UserCredential> signUp(String email, String password) async {
+  // Send Email OTP using email_otp package
+  Future<bool> sendEmailOTP(String email) async {
     try {
+      EmailOTP.config(
+        appName: 'TeX',
+        otpType: OTPType.numeric,
+        emailTheme: EmailTheme.v6,
+      );
+      bool result = await EmailOTP.sendOTP(email: email);
+      return result;
+    } catch (e) {
+      debugPrint("Failed to send OTP: $e");
+      return false;
+    }
+  }
+
+  // Verify Email OTP
+  bool verifyEmailOTP(String otp) {
+    return EmailOTP.verifyOTP(otp: otp);
+  }
+
+  // Sign Up with Email/Password
+  Future<UserCredential> signUp(String email, String password, {String? verificationOtp}) async {
+    try {
+      if (verificationOtp == null || verificationOtp.isEmpty) {
+        throw Exception("OTP is required to register.");
+      }
+
+      if (!verifyEmailOTP(verificationOtp)) {
+        throw Exception("Invalid OTP. Please try again.");
+      }
+
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
-      // Save user to Firestore
+      
+      // We CAN save them now so they exist in DB. 
       await _saveUserToFirestore(userCredential.user!);
-      // Save credentials locally for Web Login
-      await _storeCredentials(email, password);
+      
       return userCredential;
     } on FirebaseAuthException catch (e) {
-      throw Exception(e.code);
+      throw Exception(e.message ?? e.code);
+    } catch (e) {
+       throw Exception(e.toString());
     }
   }
 
