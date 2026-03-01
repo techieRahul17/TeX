@@ -149,10 +149,36 @@ class AuthService extends ChangeNotifier {
   Future<bool> sendEmailOTP(String email) async {
     try {
       EmailOTP.config(
-        appName: 'TeX',
+        appName: 'TeX App',
         otpType: OTPType.numeric,
         emailTheme: EmailTheme.v6,
+        appEmail: 'noreply@texapp.com',
+        otpLength: 6,
       );
+
+      EmailOTP.setTemplate(template: '''
+      <div style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+          <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); padding: 30px;">
+              <h2 style="color: #333333;text-align: center;">Welcome to TeX App!</h2>
+              <p style="color: #555555; text-align: center;">You are just one step away from securely verifying your account.</p>
+              <div style="text-align: center; margin: 30px 0;">
+                  <span style="display: inline-block; font-size: 32px; font-weight: bold; padding: 10px 20px; color: #ffffff; background-color: #4CAF50; border-radius: 5px; letter-spacing: 5px;">{{otp}}</span>
+              </div>
+              <p style="color: #555555; text-align: center;">Please use this OTP to complete your registration. Do not share this code with anyone.</p>
+              <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;">
+              <p style="color: #999999; font-size: 12px; text-align: center;">© TeX App. Created by Rahul V S. All rights reserved.</p>
+          </div>
+      </div>
+      ''');
+      
+      EmailOTP.setSMTP(
+        host: 'smtp.gmail.com',
+        emailPort: EmailPort.port587,
+        secureType: SecureType.tls,
+        username: 'vsrahul2006@gmail.com', // Replace with real email
+        password: 'scnnnfzbzkdmwxjs',       // Replace with real app password
+      );
+
       bool result = await EmailOTP.sendOTP(email: email);
       return result;
     } catch (e) {
